@@ -18,6 +18,26 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="CLIUtils.cpp" />
+    <ClCompile Include="Config.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="ProcessManager.cpp" />
+    <ClCompile Include="Scheduler.cpp" />
+    <ClCompile Include="Screen.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="CLIUtils.h" />
+    <ClInclude Include="Config.h" />
+    <ClInclude Include="Instruction.h" />
+    <ClInclude Include="ProcessManager.h" />
+    <ClInclude Include="Scheduler.h" />
+    <ClInclude Include="Screen.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="config.txt" />
+    <Text Include="csopesy_log.txt" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
@@ -122,25 +142,6 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\CLIUtils.cpp" />
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\Config.cpp" />
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\main.cpp" />
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\ProcessManager.cpp" />
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\Scheduler.cpp" />
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\Screen.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\CLIUtils.h" />
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Config.h" />
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Instruction.h" />
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\ProcessManager.h" />
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Scheduler.h" />
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Screen.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="..\..\CSOPESY-MO1 2.0\config.txt" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

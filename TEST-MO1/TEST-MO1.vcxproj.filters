@@ -15,48 +15,47 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\CLIUtils.cpp">
+    <ClCompile Include="CLIUtils.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\Config.cpp">
+    <ClCompile Include="Config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\main.cpp">
+    <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\ProcessManager.cpp">
+    <ClCompile Include="ProcessManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\Scheduler.cpp">
+    <ClCompile Include="Scheduler.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\CSOPESY-MO1 2.0\Screen.cpp">
+    <ClCompile Include="Screen.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\CLIUtils.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="CLIUtils.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Config.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="Config.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Instruction.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="Instruction.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\ProcessManager.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="ProcessManager.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Scheduler.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="Scheduler.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\CSOPESY-MO1 2.0\Screen.h">
-      <Filter>Source Files</Filter>
+    <ClInclude Include="Screen.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="..\..\CSOPESY-MO1 2.0\config.txt">
-      <Filter>Source Files</Filter>
-    </Text>
+    <Text Include="config.txt" />
+    <Text Include="csopesy_log.txt" />
   </ItemGroup>
 </Project>

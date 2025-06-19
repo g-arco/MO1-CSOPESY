@@ -1,0 +1,2 @@
+Process: p1
+LOG: Hello world!
