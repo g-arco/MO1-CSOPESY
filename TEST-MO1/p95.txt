@@ -1,2 +1,0 @@
-Process: p95
-LOG: Hello world!

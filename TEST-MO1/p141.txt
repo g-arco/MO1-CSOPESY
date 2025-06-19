@@ -1,2 +1,0 @@
-Process: p141
-LOG: Hello world!

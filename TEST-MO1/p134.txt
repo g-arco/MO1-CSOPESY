@@ -1,2 +1,0 @@
-Process: p134
-LOG: Hello world!

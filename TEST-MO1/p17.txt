@@ -1,2 +1,0 @@
-Process: p17
-LOG: Hello world!

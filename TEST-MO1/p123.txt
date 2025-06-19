@@ -1,2 +1,0 @@
-Process: p123
-LOG: Hello world!

@@ -1,2 +1,0 @@
-Process: p175
-LOG: Hello world!

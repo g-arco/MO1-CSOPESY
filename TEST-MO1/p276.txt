@@ -1,2 +1,0 @@
-Process: p276
-LOG: Hello world!

@@ -53,6 +53,10 @@ void ProcessManager::listScreens() {
 
 void ProcessManager::generateReport() {
     std::ofstream file("csopesy-log.txt");
+    if (!file.is_open()) {
+        std::cerr << "Failed to open csopesy-log.txt for writing.\n";
+        return;
+    }
 
     const auto& procs = getProcesses();
     int totalCores = 4; // Can be fetched from config if passed

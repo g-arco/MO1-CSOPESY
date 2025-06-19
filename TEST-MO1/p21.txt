@@ -1,2 +1,0 @@
-Process: p21
-LOG: Hello world!

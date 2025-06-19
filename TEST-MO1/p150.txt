@@ -1,2 +1,0 @@
-Process: p150
-LOG: Hello world!

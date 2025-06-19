@@ -1,2 +1,0 @@
-Process: p235
-LOG: Hello world!

@@ -1,2 +1,0 @@
-Process: p130
-LOG: Hello world!

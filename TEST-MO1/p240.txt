@@ -1,2 +1,0 @@
-Process: p240
-LOG: Hello world!

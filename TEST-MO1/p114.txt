@@ -1,2 +1,0 @@
-Process: p114
-LOG: Hello world!

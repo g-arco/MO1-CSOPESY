@@ -1,2 +1,0 @@
-Process: p244
-LOG: Hello world!

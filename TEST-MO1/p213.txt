@@ -1,2 +1,0 @@
-Process: p213
-LOG: Hello world!

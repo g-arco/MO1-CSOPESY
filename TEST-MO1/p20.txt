@@ -1,2 +1,0 @@
-Process: p20
-LOG: Hello world!

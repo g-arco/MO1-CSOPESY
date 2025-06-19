@@ -1,0 +1,7 @@
+CPU Util: 0%
+Core used: 0
+Core avail: 4
+
+Running Processes:
+
+Finished Processes:

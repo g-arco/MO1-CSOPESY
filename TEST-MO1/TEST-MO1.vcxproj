@@ -36,7 +36,7 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="config.txt" />
-    <Text Include="csopesy_log.txt" />
+    <Text Include="csopesy-log.txt" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

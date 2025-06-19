@@ -38,11 +38,19 @@ void commandLoop() {
             std::cout << "Command not available. Please run 'initialize' first.\n";
         }
         else if (cmd == "scheduler-start") {
-            scheduler->startSchedulerThread();
+            if (!scheduler) {
+                std::cout << "System not initialized. Use `initialize` first.\n";
+            }
+            else {
+                scheduler->startDummyGeneration();
+            }
         }
         else if (cmd == "scheduler-stop") {
-            scheduler->stopSchedulerThread();
+            if (scheduler) {
+                scheduler->stopDummyGeneration();
+            }
         }
+
         else if (cmd == "screen") {
             std::string opt;
             iss >> opt;
@@ -50,6 +58,7 @@ void commandLoop() {
             if (opt == "-s") {
                 std::string name;
                 iss >> name;
+
                 if (name.empty()) {
                     std::cout << "Please provide a screen name.\n";
                 }
@@ -59,23 +68,28 @@ void commandLoop() {
                     }
                     else {
                         ProcessManager::createAndAttach(name, config);
-                        ProcessManager::getProcesses().at(name)->showScreen();
+
+                        //  ADD the new screen process to the scheduler
+                        auto proc = ProcessManager::getProcesses().at(name);
+                        scheduler->addProcess(proc);
+                        std::cout << "[Main] Screen '" << name << "' added to scheduler queue.\n";
+
+                        proc->showScreen();
                     }
                 }
             }
             else if (opt == "-r") {
                 std::string name;
                 iss >> name;
+
                 if (name.empty()) {
                     std::cout << "Please specify a screen name to resume.\n";
                 }
+                else if (!ProcessManager::getProcesses().count(name)) {
+                    std::cout << "No screen found with the name '" << name << "'.\n";
+                }
                 else {
-                    if (!ProcessManager::getProcesses().count(name)) {
-                        std::cout << "No screen found with the name '" << name << "'.\n";
-                    }
-                    else {
-                        ProcessManager::getProcesses().at(name)->showScreen();
-                    }
+                    ProcessManager::getProcesses().at(name)->showScreen();
                 }
             }
             else if (opt == "-ls") {

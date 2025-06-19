@@ -1,2 +1,0 @@
-Process: p31
-LOG: Hello world!

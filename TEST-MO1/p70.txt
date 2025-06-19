@@ -1,2 +1,0 @@
-Process: p70
-LOG: Hello world!

@@ -1,2 +1,0 @@
-Process: p120
-LOG: Hello world!

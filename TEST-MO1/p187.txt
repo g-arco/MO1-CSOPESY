@@ -1,2 +1,0 @@
-Process: p187
-LOG: Hello world!

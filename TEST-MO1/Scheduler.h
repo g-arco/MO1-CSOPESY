@@ -4,34 +4,57 @@
 #include "Instruction.h"
 #include "Config.h"
 #include "Screen.h"
+
 #include <vector>
 #include <queue>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
+#include <memory>
+#include <sstream>
+#include <iomanip>
 
 class Scheduler {
 public:
-    Scheduler(const Config& config);
+    explicit Scheduler(const Config& config);
     ~Scheduler();
 
-    void addProcess(Screen* process);
-    void startSchedulerThread();
-    void stopSchedulerThread();
+    void start();
+    void stop();
+
+    void addProcess(std::shared_ptr<Screen> process);
+
+    // New methods for dummy process generation
+    void startDummyGeneration();
+    void stopDummyGeneration();
 
 private:
-    void schedulerLoop();
-    void worker(int coreId);
+    void fcfsLoop();
+    void rrLoop();
+
+    void dummyProcessGenerator(); // thread function to generate dummy processes
 
     Config config;
-    int tick = 0;
-    std::vector<std::thread> workers;
-    std::queue<Screen*> processQueue;
+    int quantumCycles;
+    int delayPerExec;
+    int dummyGenerationInterval;
+
+    std::queue<std::shared_ptr<Screen>> readyQueue;
+    std::vector<bool> cpuCores; // true = busy, false = free
+
     std::mutex queueMutex;
     std::condition_variable cv;
     std::atomic<bool> running;
+
+    enum class SchedulerType { FCFS, RR } schedulerType;
+
     std::thread schedulerThread;
+
+    // Dummy process generation members
+    std::atomic<bool> generateDummyProcesses;
+    std::thread generatorThread;
+    std::atomic<int> dummyProcessCounter;
 };
 
-#endif
+#endif // SCHEDULER_H

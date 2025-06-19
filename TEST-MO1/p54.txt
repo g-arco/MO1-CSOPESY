@@ -1,2 +1,0 @@
-Process: p54
-LOG: Hello world!

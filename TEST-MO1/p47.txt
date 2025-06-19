@@ -1,2 +1,0 @@
-Process: p47
-LOG: Hello world!

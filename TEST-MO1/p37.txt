@@ -1,2 +1,0 @@
-Process: p37
-LOG: Hello world!

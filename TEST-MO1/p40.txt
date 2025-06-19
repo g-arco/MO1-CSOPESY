@@ -1,2 +1,0 @@
-Process: p40
-LOG: Hello world!

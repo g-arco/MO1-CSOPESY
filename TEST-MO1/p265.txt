@@ -1,2 +1,0 @@
-Process: p265
-LOG: Hello world!

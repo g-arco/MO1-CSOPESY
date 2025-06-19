@@ -1,2 +1,0 @@
-Process: p191
-LOG: Hello world!

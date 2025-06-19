@@ -1,2 +1,0 @@
-Process: p273
-LOG: Hello world!

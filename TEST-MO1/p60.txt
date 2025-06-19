@@ -1,2 +1,0 @@
-Process: p60
-LOG: Hello world!

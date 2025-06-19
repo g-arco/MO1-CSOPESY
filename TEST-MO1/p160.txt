@@ -1,2 +1,0 @@
-Process: p160
-LOG: Hello world!

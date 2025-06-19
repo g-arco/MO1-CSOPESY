@@ -1,76 +1,154 @@
 #include "Screen.h"
-#include "CLIUtils.h"
 #include <iostream>
 #include <chrono>
 #include <ctime>
-#include <thread>
+#include <iomanip>
 
-
-static std::string getCurrentTime() {
-    auto now = std::chrono::system_clock::now();
-    std::time_t now_time = std::chrono::system_clock::to_time_t(now);
-    char buffer[80];
-    std::tm timeinfo;
-    localtime_s(&timeinfo, &now_time); // Windows-safe
-    std::strftime(buffer, sizeof(buffer), "%m/%d/%Y, %I:%M:%S %p", &timeinfo);
-    return std::string(buffer);
+// Default constructor
+Screen::Screen()
+    : name("default"), instructionPointer(0),
+    status(ProcessStatus::READY), coreAssigned(-1)
+{
+    updateTimestamp();
+    instructions.clear();
+    // You may open a default log file here if you want, or leave closed
 }
 
-Screen::Screen(const std::string& name, const std::vector<Instruction>& instrs)
-    : name(name), instructions(instrs), instructionPointer(0), status(ProcessStatus::RUNNING),
-    logFile(name + ".txt"), creationTimestamp(getCurrentTime()) {
-    logFile << "Process: " << name << "\n";
-}
-
-void Screen::executeNextInstruction() {
-    if (instructionPointer >= instructions.size()) {
-        status = ProcessStatus::FINISHED;
-        return;
+// Parameterized constructor
+Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs)
+    : name(name_), instructions(instrs), instructionPointer(0),
+    status(ProcessStatus::READY), coreAssigned(-1)
+{
+    updateTimestamp();
+    logFile.open(name + ".log", std::ios::app);
+    if (!logFile.is_open()) {
+        std::cerr << "Failed to open log file for process: " << name << std::endl;
     }
-
-    Instruction ins = instructions[instructionPointer++];
-    switch (ins.type) {
-    case InstructionType::PRINT:
-        printLog(ins.args[0]);
-        break;
-    default:
-        break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-}
-
-void Screen::printLog(const std::string& msg) {
-    logFile << "LOG: " << msg << "\n";
-}
-
-bool Screen::isFinished() const {
-    return status == ProcessStatus::FINISHED;
 }
 
 std::string Screen::getName() const {
+    std::lock_guard<std::mutex> lock(mtx);
     return name;
 }
 
-void Screen::showScreen() {
-    CLIUtils::clearScreen();
-    std::cout << "Attached to process: " << name << "\n";
-    if (isFinished()) {
-        std::cout << "Process has finished.\n";
+void Screen::setName(const std::string& newName) {
+    std::lock_guard<std::mutex> lock(mtx);
+    name = newName;
+    // Optionally reopen log file if you want
+}
+
+void Screen::generateDummyInstructions() {
+    std::lock_guard<std::mutex> lock(mtx);
+    instructions.clear();
+
+    instructions.push_back(Instruction{ InstructionType::PRINT, {"Hello from " + name} });
+    instructions.push_back(Instruction{ InstructionType::SLEEP, {"3"} });
+    instructions.push_back(Instruction{ InstructionType::PRINT, {"Dummy process completed."} });
+
+    instructionPointer = 0;
+    status = ProcessStatus::READY;
+}
+
+std::string Screen::getCreationTimestamp() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return creationTimestamp;
+}
+
+size_t Screen::getCurrentInstruction() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return instructionPointer + 1;
+}
+
+size_t Screen::getTotalInstructions() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return instructions.size();
+}
+
+void Screen::setCoreAssigned(int core) {
+    std::lock_guard<std::mutex> lock(mtx);
+    coreAssigned = core;
+}
+
+int Screen::getCoreAssigned() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return coreAssigned;
+}
+
+void Screen::setStatus(ProcessStatus newStatus) {
+    std::lock_guard<std::mutex> lock(mtx);
+    status = newStatus;
+}
+
+ProcessStatus Screen::getStatus() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return status;
+}
+
+bool Screen::isFinished() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return status == ProcessStatus::FINISHED;
+}
+
+void Screen::updateTimestamp() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t tnow = std::chrono::system_clock::to_time_t(now);
+    std::tm localTime{};
+#ifdef _WIN32
+    localtime_s(&localTime, &tnow);
+#else
+    localtime_r(&tnow, &localTime);
+#endif
+    char buffer[20];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &localTime);
+    creationTimestamp = buffer;
+}
+
+void Screen::executeNextInstruction() {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    if (status == ProcessStatus::FINISHED) return;
+    if (instructionPointer >= instructions.size()) {
+        status = ProcessStatus::FINISHED;
+        printLog("Process finished execution.");
         return;
     }
 
-    std::string cmd;
-    while (true) {
-        std::cout << "[screen:" << name << "]$ ";
-        std::getline(std::cin, cmd);
-        if (cmd == "process-smi") {
-            std::cout << "Process: " << name << " [Running]\n";
-        }
-        else if (cmd == "exit") {
-            break;
-        }
-        else {
-            std::cout << "Unknown command.\n";
-        }
+    const Instruction& instr = instructions[instructionPointer];
+    if (instr.type == InstructionType::PRINT && !instr.args.empty()) {
+        printLog("PRINT: " + instr.args[0]);
+        std::cout << "[" << name << "] " << instr.args[0] << std::endl;
+    }
+    else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
+        printLog("SLEEP: " + instr.args[0]);
+        int sleepTime = std::stoi(instr.args[0]);
+        std::this_thread::sleep_for(std::chrono::seconds(sleepTime));
+    }
+    // Add other instructions here if needed
+
+    instructionPointer++;
+
+    if (instructionPointer >= instructions.size()) {
+        status = ProcessStatus::FINISHED;
+        printLog("Process finished execution.");
     }
 }
+
+void Screen::printLog(const std::string& msg) {
+    std::lock_guard<std::mutex> lock(mtx);
+    if (logFile.is_open()) {
+        logFile << "[" << creationTimestamp << "] " << msg << std::endl;
+    }
+}
+
+void Screen::showScreen() {
+    std::cout << "Process: " << getName() << " - Status: ";
+    switch (getStatus()) {
+    case ProcessStatus::READY: std::cout << "READY"; break;
+    case ProcessStatus::RUNNING: std::cout << "RUNNING"; break;
+    case ProcessStatus::FINISHED: std::cout << "FINISHED"; break;
+    }
+    std::cout << " (" << getCurrentInstruction() << "/" << getTotalInstructions() << ")\n";
+}
+
+
+
