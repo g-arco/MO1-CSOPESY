@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <unordered_set>
 
 std::map<std::string, std::shared_ptr<Screen>> ProcessManager::processes;
 
@@ -24,31 +25,67 @@ void ProcessManager::resumeScreen(const std::string& name) {
     }
 }
 
-void ProcessManager::listScreens() {
-    std::cout << "Running Processes:\n";
+void ProcessManager::listScreens(const Config& config) {
+    std::cout << "\n----------------------------------------\n";
 
-    for (auto it = processes.begin(); it != processes.end(); ++it) {
-        auto& proc = it->second;
-        if (!proc->isFinished()) {
-            std::cout << "- " << proc->getName()
-                << " (" << proc->getCreationTimestamp() << ")  "
-                << "Core " << proc->getCoreAssigned() << "  "
-                << proc->getCurrentInstruction() << "/" << proc->getTotalInstructions() << "\n";
+    std::unordered_set<int> activeCoreIds;
+
+    // Count active cores
+    for (const auto& [_, proc] : processes) {
+        if (!proc->isFinished() && proc->getCoreAssigned() != -1) {
+            activeCoreIds.insert(proc->getCoreAssigned());
         }
     }
 
+    int totalCores = config.numCpu;
+    int activeCores = activeCoreIds.size();
+    int coresAvailable = std::max(0, totalCores - activeCores);
+    double utilization = (static_cast<double>(activeCores) / totalCores) * 100.0;
+
+    // CPU STATS
+    std::cout << "CPU Stats:\n";
+    std::cout << "Cores Used:      " << activeCores << " / " << totalCores << "\n";
+    std::cout << "Cores Available: " << coresAvailable << "\n";
+    std::cout << "CPU Utilization: " << std::fixed << std::setprecision(2) << utilization << "%\n";
+
+    // RUNNING PROCESSES
+     std::cout << "\n----------------------------------------\n";
+    std::cout << "\nRunning Processes:\n";
+    int cntRunning = 0;
+    for (const auto& [name, proc] : processes) {
+        if (!proc->isFinished() && proc->getCurrentInstruction() > 0) {
+            cntRunning++;
+            std::cout << std::setw(15) << std::left << ("- " + name)
+                      << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+                      << "Core: " << std::setw(3) << proc->getCoreAssigned()
+                      << "   " << proc->getCurrentInstruction()
+                      << " / " << proc->getTotalInstructions() << "\n";
+        }
+    }
+    if (cntRunning == 0) {
+        std::cout << "No running processes.\n";
+    }
+
+    // FINISHED PROCESSES
     std::cout << "\nFinished Processes:\n";
-
-    for (auto it = processes.begin(); it != processes.end(); ++it) {
-        auto& proc = it->second;
+    int cntFinished = 0;
+    for (const auto& [name, proc] : processes) {
         if (proc->isFinished()) {
-            std::cout << "- " << proc->getName()
-                << " (" << proc->getCreationTimestamp() << ")  "
-                << "Finished  "
-                << proc->getTotalInstructions() << "/" << proc->getTotalInstructions() << "\n";
+            cntFinished++;
+            std::cout << std::setw(15) << std::left << ("- " + name)
+                      << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+                      << "Finished   "
+                      << proc->getTotalInstructions() << " / " << proc->getTotalInstructions() << "\n";
         }
     }
+    if (cntFinished == 0) {
+        std::cout << "No finished processes.\n";
+    }
+
+    std::cout << "----------------------------------------\n\n";
 }
+
+
 
 
 void ProcessManager::generateReport() {
@@ -59,17 +96,15 @@ void ProcessManager::generateReport() {
     }
 
     const auto& procs = getProcesses();
-    int totalCores = 4; // Can be fetched from config if passed
+    int totalCores = 4;
     int coresUsed = 0;
 
     std::vector<std::shared_ptr<Screen>> running, finished;
     for (const auto& pair : procs) {
         auto proc = pair.second;
-
         if (proc->isFinished()) {
             finished.push_back(proc);
-        }
-        else {
+        } else {
             running.push_back(proc);
             if (proc->getCoreAssigned() >= 0) ++coresUsed;
         }
@@ -77,29 +112,35 @@ void ProcessManager::generateReport() {
 
     float cpuUtil = totalCores == 0 ? 0 : (float(coresUsed) / totalCores) * 100;
 
-    file << "CPU Util: " << int(cpuUtil) << "%\n";
-    file << "Core used: " << coresUsed << "\n";
-    file << "Core avail: " << totalCores << "\n\n";
+    file << "----------------------------------------\n";
+    file << "CPU Stats:\n";
+    file << "Cores Used:      " << coresUsed << " / " << totalCores << "\n";
+    file << "Cores Available: " << (totalCores - coresUsed) << "\n";
+    file << "CPU Utilization: " << std::fixed << std::setprecision(2) << cpuUtil << "%\n";
+    file << "----------------------------------------\n\n";
 
     file << "Running Processes:\n";
     for (auto& proc : running) {
-        file << proc->getName()
-            << " (" << proc->getCreationTimestamp() << ")  "
-            << "Core " << proc->getCoreAssigned() << "   "
-            << proc->getCurrentInstruction() << "/" << proc->getTotalInstructions() << "\n";
+        file << std::left << std::setw(15) << ("- " + proc->getName())
+             << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+             << "Core: " << std::setw(2) << proc->getCoreAssigned()
+             << "  " << proc->getCurrentInstruction()
+             << " / " << proc->getTotalInstructions() << "\n";
     }
 
     file << "\nFinished Processes:\n";
     for (auto& proc : finished) {
-        file << proc->getName()
-            << " (" << proc->getCreationTimestamp() << ")  "
-            << "Finished   "
-            << proc->getTotalInstructions() << "/" << proc->getTotalInstructions() << "\n";
+        file << std::left << std::setw(15) << ("- " + proc->getName())
+             << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+             << "Finished  "
+             << proc->getTotalInstructions() << " / " << proc->getTotalInstructions() << "\n";
     }
 
+    file << "----------------------------------------\n";
     file.close();
     std::cout << "Report saved to csopesy-log.txt\n";
 }
+
 
 void ProcessManager::registerProcess(std::shared_ptr<Screen> process) {
     processes[process->getName()] = process;

@@ -1,5 +1,5 @@
 num-cpu 4
-scheduler rr
+scheduler "rr"
 quantum-cycles 3
 batch-process-freq 2
 min-ins 5

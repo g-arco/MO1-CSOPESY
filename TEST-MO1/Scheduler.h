@@ -4,7 +4,7 @@
 #include "Instruction.h"
 #include "Config.h"
 #include "Screen.h"
-
+#include <thread>
 #include <vector>
 #include <queue>
 #include <thread>

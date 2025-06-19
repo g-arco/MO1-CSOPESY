@@ -6,6 +6,7 @@
 #include <fstream>
 #include "Instruction.h"
 #include <mutex>
+#include <thread>
 
 enum class ProcessStatus { READY, RUNNING, FINISHED };
 

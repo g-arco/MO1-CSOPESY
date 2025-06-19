@@ -4,6 +4,7 @@
 #include "CLIUtils.h"
 #include <iostream>
 #include <sstream>
+#include <thread>
 #include <string>
 
 bool initialized = false;
@@ -93,7 +94,7 @@ void commandLoop() {
                 }
             }
             else if (opt == "-ls") {
-                ProcessManager::listScreens();
+                ProcessManager::listScreens(config);
             }
             else {
                 std::cout << "Unknown screen option.\n";

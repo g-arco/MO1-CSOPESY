@@ -60,7 +60,7 @@ void Scheduler::addProcess(std::shared_ptr<Screen> process) {
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         readyQueue.push(process);
-        //std::cout << "[Scheduler] Added process: " << process->getName() << std::endl;
+        std::cout << "[Scheduler] Added process: " << process->getName() << std::endl;
     }
     cv.notify_one();
 }

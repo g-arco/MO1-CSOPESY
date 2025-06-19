@@ -10,7 +10,7 @@ class ProcessManager {
 public:
     static void createAndAttach(const std::string& name, const Config& config);
     static void resumeScreen(const std::string& name);
-    static void listScreens();
+    static void listScreens(const Config& config);
     static void generateReport();
     static void registerProcess(std::shared_ptr<Screen> process);
 
