@@ -84,11 +84,12 @@ void Scheduler::stopDummyGeneration() {
 
 // Dummy process generator loop
 void Scheduler::dummyProcessGenerator() {
-    while (generateDummyProcesses) {
-        // Wait for the configured interval (based on CPU tick delay)
+    int limit = 150; 
+    while (generateDummyProcesses && dummyProcessCounter < limit) {
         std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec * dummyGenerationInterval));
 
-        // Generate new dummy process
+        std::cout << "[DEBUG] Generating dummy process #" << dummyProcessCounter + 1 << std::endl;
+
         auto newProcess = std::make_shared<Screen>();
         std::stringstream ss;
         ss << "p" << std::setw(2) << std::setfill('0') << ++dummyProcessCounter;
@@ -96,8 +97,8 @@ void Scheduler::dummyProcessGenerator() {
         newProcess->generateDummyInstructions();
 
         addProcess(newProcess);
-        //std::cout << "[Generator] Created dummy process: " << ss.str() << std::endl;
     }
+
 }
 
 // FCFS scheduling loop
