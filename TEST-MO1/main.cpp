@@ -6,6 +6,8 @@
 #include <sstream>
 #include <thread>
 #include <string>
+#include <cstdlib>   // for srand()
+#include <ctime>     // for time()
 
 bool initialized = false;
 Config config;
@@ -68,14 +70,20 @@ void commandLoop() {
                         std::cout << "Screen with name '" << name << "' already exists. Use 'screen -r " << name << "' to resume.\n";
                     }
                     else {
-                        ProcessManager::createAndAttach(name, config);
+                        ProcessManager::createAndAttach(name, config, *scheduler); 
 
-                        //  ADD the new screen process to the scheduler
                         auto proc = ProcessManager::getProcesses().at(name);
                         scheduler->addProcess(proc);
                         std::cout << "[Main] Screen '" << name << "' added to scheduler queue.\n";
 
-                        proc->showScreen();
+                        if (proc->isFinished()) {
+                            std::cout << "Process '" << name << "' has already finished.\n";
+                        } else {
+                            proc->showScreen();
+                            
+                            CLIUtils::clearScreen();
+                            CLIUtils::printHeader();
+                        }
                     }
                 }
             }
@@ -90,7 +98,15 @@ void commandLoop() {
                     std::cout << "No screen found with the name '" << name << "'.\n";
                 }
                 else {
-                    ProcessManager::getProcesses().at(name)->showScreen();
+                    auto proc = ProcessManager::getProcesses().at(name);
+                    if (proc->isFinished()) {
+                        std::cout << "Process '" << name << "' has already finished and cannot be resumed.\n";
+                    } else {
+                        proc->showScreen();
+                        
+                        CLIUtils::clearScreen();
+                        CLIUtils::printHeader();
+                    }
                 }
             }
             else if (opt == "-ls") {
@@ -110,6 +126,7 @@ void commandLoop() {
 }
 
 int main() {
+    srand(static_cast<unsigned>(time(nullptr)));  // Seed the RNG once
     commandLoop();
     delete scheduler;
     return 0;

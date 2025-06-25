@@ -67,11 +67,19 @@ void Scheduler::addProcess(std::shared_ptr<Screen> process) {
 
 // Start dummy process generation
 void Scheduler::startDummyGeneration() {
-    if (generateDummyProcesses) return; // already running
+    if (generateDummyProcesses) return; // Already running
+
     generateDummyProcesses = true;
+
+    // Start the dummy generation thread
     generatorThread = std::thread(&Scheduler::dummyProcessGenerator, this);
-    //std::cout << "[Scheduler] Dummy process generation started.\n";
+
+    // Optional: detach if you never plan to join it, or keep join() elsewhere
+    generatorThread.detach();
+
+    std::cout << "[Scheduler] Dummy process generation started.\n";
 }
+
 
 // Stop dummy process generation
 void Scheduler::stopDummyGeneration() {

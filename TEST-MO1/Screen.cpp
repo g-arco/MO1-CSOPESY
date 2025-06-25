@@ -4,20 +4,20 @@
 #include <ctime>
 #include <iomanip>
 
-// Default constructor
 Screen::Screen()
     : name("default"), instructionPointer(0),
-    status(ProcessStatus::READY), coreAssigned(-1)
+      status(ProcessStatus::READY), coreAssigned(-1)
 {
     updateTimestamp();
     instructions.clear();
-    // You may open a default log file here if you want, or leave closed
+    // Optional: Open a log file if needed
 }
 
-// Parameterized constructor
+
+// Default constructor
 Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs)
     : name(name_), instructions(instrs), instructionPointer(0),
-    status(ProcessStatus::READY), coreAssigned(-1)
+      status(ProcessStatus::READY), coreAssigned(-1)
 {
     updateTimestamp();
     logFile.open(name + ".log", std::ios::app);
@@ -26,9 +26,114 @@ Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs)
     }
 }
 
+
+void Screen::executeNextInstruction() {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    if (status == ProcessStatus::FINISHED) return;
+    if (instructionPointer >= instructions.size()) {
+        status = ProcessStatus::FINISHED;
+        printLog("Process finished execution.");
+        return;
+    }
+
+    Instruction& instr = instructions[instructionPointer];
+
+    if (instr.type == InstructionType::PRINT && !instr.args.empty()) {
+        std::string logEntry = "[" + getTimestamp() + "] " + instr.args[0];
+
+        // Append log to file
+        std::ofstream logFile(name + ".log", std::ios::app);
+        if (logFile.is_open()) {
+            logFile << logEntry << "\n";
+        }
+
+        std::cout << logEntry << std::endl;
+    }
+
+    instructionPointer++;
+
+    if (instructionPointer >= instructions.size()) {
+        status = ProcessStatus::FINISHED;
+        printLog("Process finished execution.");
+    }
+}
+
+
+
 std::string Screen::getName() const {
     std::lock_guard<std::mutex> lock(mtx);
     return name;
+}
+
+void Screen::showScreen() {
+    while (true) {
+        // Clear screen
+#ifdef _WIN32
+        system("cls");
+#else
+        system("clear");
+#endif
+
+        std::cout << "========== PROCESS SCREEN ==========\n";
+        std::cout << "Process Name: " << getName() << "\n";
+        std::cout << "Enter a command (process-smi / exit): ";
+
+        std::string input;
+        std::getline(std::cin, input);
+
+        if (input == "exit") {
+            break;
+        } else if (input == "process-smi") {
+#ifdef _WIN32
+            system("cls");
+#else
+            system("clear");
+#endif
+
+            std::cout << "========== PROCESS INFO ==========\n";
+            std::cout << "Process Name:   " << getName() << "\n";
+            std::cout << "ID:             " << getCreationTimestamp() << "\n";
+            std::cout << "Core Assigned:  " << getCoreAssigned() << "\n";
+
+            std::cout << "\n========== LOGS ==========\n";
+            logFile.flush(); // Ensure all logs are written
+
+            std::ifstream readLog(name + ".log");
+            bool hasLogs = false;
+
+            if (readLog.is_open()) {
+                std::string line;
+                while (std::getline(readLog, line)) {
+                    if (!line.empty()) {
+                        hasLogs = true;
+                        std::cout << line << "\n";
+                    }
+                }
+                readLog.close();
+            }
+
+            if (!hasLogs) {
+                std::cout << "[No logs available for this process]\n";
+            }
+
+            std::cout << "\nCurrent Instruction Line: " << getCurrentInstruction() << "\n";
+            std::cout << "Lines of Code:            " << getTotalInstructions() << "\n";
+
+            std::cout << "Status:                   ";
+            switch (getStatus()) {
+                case ProcessStatus::READY: std::cout << "READY"; break;
+                case ProcessStatus::RUNNING: std::cout << "RUNNING"; break;
+                case ProcessStatus::FINISHED: std::cout << "FINISHED"; break;
+            }
+
+            std::cout << "\n\nPress ENTER to return to command menu...";
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+        } else {
+            std::cout << "Unknown command. Use 'process-smi' or 'exit'.\n\n";
+        }
+    }
 }
 
 void Screen::setName(const std::string& newName) {
@@ -103,35 +208,6 @@ void Screen::updateTimestamp() {
     creationTimestamp = buffer;
 }
 
-void Screen::executeNextInstruction() {
-    std::lock_guard<std::mutex> lock(mtx);
-
-    if (status == ProcessStatus::FINISHED) return;
-    if (instructionPointer >= instructions.size()) {
-        status = ProcessStatus::FINISHED;
-        printLog("Process finished execution.");
-        return;
-    }
-
-    const Instruction& instr = instructions[instructionPointer];
-    if (instr.type == InstructionType::PRINT && !instr.args.empty()) {
-        printLog("PRINT: " + instr.args[0]);
-        std::cout << "[" << name << "] " << instr.args[0] << std::endl;
-    }
-    else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
-        printLog("SLEEP: " + instr.args[0]);
-        int sleepTime = std::stoi(instr.args[0]);
-        std::this_thread::sleep_for(std::chrono::seconds(sleepTime));
-    }
-    // Add other instructions here if needed
-
-    instructionPointer++;
-
-    if (instructionPointer >= instructions.size()) {
-        status = ProcessStatus::FINISHED;
-        printLog("Process finished execution.");
-    }
-}
 
 void Screen::printLog(const std::string& msg) {
     std::lock_guard<std::mutex> lock(mtx);
@@ -140,15 +216,20 @@ void Screen::printLog(const std::string& msg) {
     }
 }
 
-void Screen::showScreen() {
-    std::cout << "Process: " << getName() << " - Status: ";
-    switch (getStatus()) {
-    case ProcessStatus::READY: std::cout << "READY"; break;
-    case ProcessStatus::RUNNING: std::cout << "RUNNING"; break;
-    case ProcessStatus::FINISHED: std::cout << "FINISHED"; break;
-    }
-    std::cout << " (" << getCurrentInstruction() << "/" << getTotalInstructions() << ")\n";
+
+
+
+
+std::string Screen::getTimestamp() const {
+    auto now = std::chrono::system_clock::now();
+    std::time_t tnow = std::chrono::system_clock::to_time_t(now);
+    std::tm localTime{};
+#ifdef _WIN32
+    localtime_s(&localTime, &tnow);
+#else
+    localtime_r(&tnow, &localTime);
+#endif
+    char buffer[20];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &localTime);
+    return std::string(buffer);
 }
-
-
-

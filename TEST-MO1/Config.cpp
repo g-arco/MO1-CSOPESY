@@ -51,7 +51,12 @@ Config Config::load(const std::string& filename) {
             int val;
             if (iss >> val) config.delayPerExec = val;
         }
+        else if (key == "dummy-generation-interval") { // optional
+            int val;
+            if (iss >> val) config.dummyGenerationInterval = val;
+        }
     }
 
     return config;
 }
+

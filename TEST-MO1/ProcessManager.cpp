@@ -6,14 +6,26 @@
 
 std::map<std::string, std::shared_ptr<Screen>> ProcessManager::processes;
 
-void ProcessManager::createAndAttach(const std::string& name, const Config& config) {
-    std::vector<Instruction> instructions = {
-        { InstructionType::PRINT, { "Hello world from " + name + "!" } }
-    };
+void ProcessManager::createAndAttach(const std::string& name, const Config& config, Scheduler& scheduler) {
+    std::vector<Instruction> instructions;
+
+    int numInstructions = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
+
+    for (int i = 0; i < numInstructions; ++i) {
+        Instruction instr;
+        instr.type = static_cast<InstructionType>(rand() % 3);
+        instr.args = { "Hello world from " + name + "!" };
+        instructions.push_back(instr);
+    }
+
     auto screen = std::make_shared<Screen>(name, instructions);
     registerProcess(screen);
-    screen->showScreen();
+
+    scheduler.addProcess(screen);  // ✅ Correct usage
+    screen->showScreen();          // Console UI (optional after execution)
 }
+
+
 
 void ProcessManager::resumeScreen(const std::string& name) {
     auto it = processes.find(name);

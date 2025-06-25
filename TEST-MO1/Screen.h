@@ -14,6 +14,7 @@ class Screen {
 public:
     // Default constructor
     Screen();
+    
 
     // Parameterized constructor
     Screen(const std::string& name, const std::vector<Instruction>& instructions);
@@ -28,6 +29,7 @@ public:
     std::string getCreationTimestamp() const;
     size_t getCurrentInstruction() const;
     size_t getTotalInstructions() const;
+    std::string getTimestamp() const;
 
     void setCoreAssigned(int core);
     int getCoreAssigned() const;

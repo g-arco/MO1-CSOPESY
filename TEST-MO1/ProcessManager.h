@@ -3,12 +3,13 @@
 
 #include "Screen.h"
 #include "Config.h"
+#include "Scheduler.h"
 #include <map>
 #include <memory>
 
 class ProcessManager {
 public:
-    static void createAndAttach(const std::string& name, const Config& config);
+    static void createAndAttach(const std::string& name, const Config& config, Scheduler& scheduler);
     static void resumeScreen(const std::string& name);
     static void listScreens(const Config& config);
     static void generateReport();
