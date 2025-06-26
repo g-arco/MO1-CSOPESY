@@ -1,2 +1,11 @@
+<<<<<<< HEAD
 (06/26/2025 04:22:36 PM) Core:2 "Hello world from process18!"
 (06/26/2025 04:22:36 PM) Core:2 "Hello world from process18!"
+=======
+(06/26/2025 10:11:02 PM) Core:0 "Hello world from process18!"
+(06/26/2025 10:11:02 PM) Core:0 "Hello world from process18!"
+(06/26/2025 10:16:54 PM) Core:0 "Executing instruction 1 from process process18"
+(06/26/2025 10:16:54 PM) Core:0 "Executing instruction 2 from process process18"
+(06/26/2025 10:18:17 PM) Core:0 "Executing instruction 1 from process process18"
+(06/26/2025 10:18:17 PM) Core:1 "Executing instruction 2 from process process18"
+>>>>>>> 2ae115fd1364799a04cf9c2383b62dee3566dfcf
