@@ -1,22 +1,2 @@
-<<<<<<< HEAD
-<<<<<<< Updated upstream
-=======
-<<<<<<< HEAD
-(06/26/2025 04:22:37 PM) Core:1 "Hello world from process36!"
-(06/26/2025 04:22:37 PM) Core:1 "Hello world from process36!"
-=======
->>>>>>> scheduler
-(06/26/2025 10:11:02 PM) Core:0 "Hello world from process36!"
-(06/26/2025 10:11:02 PM) Core:0 "Hello world from process36!"
-(06/26/2025 10:16:54 PM) Core:3 "Executing instruction 1 from process process36"
-(06/26/2025 10:16:54 PM) Core:3 "Executing instruction 2 from process process36"
-(06/26/2025 10:18:17 PM) Core:3 "Executing instruction 1 from process process36"
-(06/26/2025 10:18:17 PM) Core:2 "Executing instruction 2 from process process36"
-<<<<<<< HEAD
-=======
-(06/27/2025 12:42:07 AM) Core:3 "Hello world from process36!"
-(06/27/2025 12:42:07 AM) Core:3 "Hello world from process36!"
->>>>>>> Stashed changes
-=======
->>>>>>> 2ae115fd1364799a04cf9c2383b62dee3566dfcf
->>>>>>> scheduler
+(06/27/2025 01:13:15 AM) Core:3 "Hello world from process36!"
+(06/27/2025 01:13:15 AM) Core:3 "Hello world from process36!"
