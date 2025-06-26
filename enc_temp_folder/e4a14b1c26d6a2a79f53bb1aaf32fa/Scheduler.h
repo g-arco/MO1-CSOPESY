@@ -42,6 +42,7 @@ private:
     // Utility helpers
     std::string currentTimestamp();
     void handleProcessError(const std::shared_ptr<Screen>& screen, const std::string& message);
+    void busyWait(int delayMs);
 
     // Wait for all threads to join
     void joinAll();

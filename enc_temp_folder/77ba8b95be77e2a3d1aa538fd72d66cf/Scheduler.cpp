@@ -323,3 +323,12 @@ void Scheduler::handleProcessError(const std::shared_ptr<Screen>& screen, const 
         << "' encountered an error: " << message << "\n";
 }
 
+void Scheduler::busyWait(int delayMs) {
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start)
+        .count() < delayMs)
+    {
+        // busy wait loop
+    }
+}
