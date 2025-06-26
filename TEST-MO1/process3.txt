@@ -1,0 +1,2 @@
+(06/26/2025 04:08:00 PM) Core:3 "Hello world from process3!"
+(06/26/2025 04:08:00 PM) Core:3 "Hello world from process3!"

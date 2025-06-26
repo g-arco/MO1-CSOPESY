@@ -1,183 +1,332 @@
 #include "Scheduler.h"
 #include <iostream>
 #include <chrono>
-#include <iomanip>
-#include <sstream>
+#include <thread>
+#include <algorithm>
+#include <random>
+#include <atomic>
+#include <exception>
+#include <mutex>
+#include <condition_variable>
+#include <fstream>
+#include <ctime>
 
-// Constructor
+extern Config config;
+extern std::atomic<int> activeCores;
+
+class ActiveCoreGuard {
+    std::atomic<int>& counter;
+public:
+    explicit ActiveCoreGuard(std::atomic<int>& c) : counter(c) { counter.fetch_add(1); }
+    ~ActiveCoreGuard() { counter.fetch_sub(1); }
+};
+
 Scheduler::Scheduler(const Config& cfg)
     : config(cfg),
+    finished(false),
+    numCores(cfg.numCpu),
     quantumCycles(cfg.quantum),
-    delayPerExec(cfg.delayPerExec),
-    running(false),
-    generateDummyProcesses(false),
-    dummyGenerationInterval(cfg.dummyGenerationInterval),
-    dummyProcessCounter(0)
+    generatingDummies(false),
+    dummyCounter(0)
 {
-    cpuCores.resize(config.numCpu, false);
-
-    if (config.schedulerType == Config::SchedulerType::FCFS)
-        schedulerType = SchedulerType::FCFS;
-    else if (config.schedulerType == Config::SchedulerType::RR)
-        schedulerType = SchedulerType::RR;
-    else {
-        std::cerr << "Unknown scheduler type, defaulting to FCFS\n";
-        schedulerType = SchedulerType::FCFS;
-    }
+    std::string lowerType = config.schedulerType;
+    std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
+    schedulerType = (lowerType == "rr") ? InternalSchedulerType::RR : InternalSchedulerType::FCFS;
 }
 
 Scheduler::~Scheduler() {
-    stop();
+    std::cout << "[Scheduler] Destructor called. Shutting down...\n";
+    finish();
     stopDummyGeneration();
-
-    if (schedulerThread.joinable())
-        schedulerThread.join();
-
-    if (generatorThread.joinable())
-        generatorThread.join();
+    joinAll();
+    std::cout << "[Scheduler] Destructor finished.\n";
 }
 
-// Start scheduling threads
 void Scheduler::start() {
-    running = true;
-
-    if (schedulerType == SchedulerType::FCFS) {
-        schedulerThread = std::thread(&Scheduler::fcfsLoop, this);
+    std::cout << "[Scheduler] Starting worker threads on " << numCores << " cores.\n";
+    try {
+        for (int i = 0; i < numCores; ++i) {
+            cores.emplace_back(&Scheduler::worker, this, i);
+        }
     }
-    else if (schedulerType == SchedulerType::RR) {
-        schedulerThread = std::thread(&Scheduler::rrLoop, this);
+    catch (const std::exception& e) {
+        std::cerr << "[Scheduler] Failed to start worker threads: " << e.what() << '\n';
+    }
+    catch (...) {
+        std::cerr << "[Scheduler] Unknown error starting worker threads.\n";
     }
 }
 
-// Stop scheduling threads
-void Scheduler::stop() {
-    running = false;
-    cv.notify_all();
+void Scheduler::joinAll() {
+    for (auto& thread : cores) {
+        if (thread.joinable()) {
+            std::cout << "[Scheduler] Joining worker thread.\n";
+            thread.join();
+        }
+    }
+    if (dummyThread.joinable()) {
+        std::cout << "[Scheduler] Joining dummy generation thread.\n";
+        dummyThread.join();
+    }
 }
 
-// Add process to ready queue
-void Scheduler::addProcess(std::shared_ptr<Screen> process) {
+void Scheduler::addProcess(const std::shared_ptr<Screen>& process) {
     {
         std::lock_guard<std::mutex> lock(queueMutex);
-        readyQueue.push(process);
-        std::cout << "[Scheduler] Added process: " << process->getName() << std::endl;
+        screenQueue.push(process);
     }
     cv.notify_one();
 }
 
-// Start dummy process generation
+void Scheduler::finish() {
+    std::cout << "[Scheduler] Signaling finish to all threads.\n";
+    finished.store(true);
+    cv.notify_all();
+}
+
+void Scheduler::worker(int coreId) {
+    std::cout << "[Scheduler] Worker thread started on core " << coreId << ".\n";
+
+    while (true) {
+        std::shared_ptr<Screen> screen;
+        {
+            std::unique_lock<std::mutex> lock(queueMutex);
+            cv.wait(lock, [this] { return finished.load() || !screenQueue.empty(); });
+
+            if (finished.load() && screenQueue.empty()) {
+                std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";
+                return;
+            }
+
+            if (!screenQueue.empty()) {
+                screen = screenQueue.front();
+                screenQueue.pop();
+                screen->setCoreAssigned(coreId);
+            }
+        }
+
+        if (screen) {
+            ActiveCoreGuard guard(activeCores);
+            screen->setStatus(ProcessStatus::RUNNING);
+
+            if (schedulerType == InternalSchedulerType::FCFS) {
+                executeProcessFCFS(screen, coreId);
+            }
+            else {
+                executeProcessRR(screen, coreId);
+            }
+        }
+    }
+}
+
+void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int coreId) {
+    try {
+        screen->setCoreAssigned(coreId);
+        std::ofstream logFile(screen->getName() + ".txt");
+
+        while (!screen->isFinished() && !finished.load()) {
+            if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+                screen->setStatus(ProcessStatus::FINISHED);
+                screen->printLog("Process finished execution.");
+                break;
+            }
+
+            std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction "
+                << screen->getCurrentInstruction() + 1 << " / "
+                << screen->getTotalInstructions() << " on process '"
+                << screen->getName() << "'\n";
+
+            if (config.delayPerExec > 0) {
+                busyWait(config.delayPerExec);
+            }
+
+            try {
+                auto timestamp = currentTimestamp();
+                logFile << timestamp << " Core:" << coreId
+                    << " \"Hello world from " << screen->getName() << "!\"\n";
+                logFile.flush();
+
+                screen->advanceInstruction();
+            }
+            catch (const std::exception& e) {
+                handleProcessError(screen, e.what());
+                break;
+            }
+        }
+
+        if (!screen->hasError()) {
+            screen->setStatus(ProcessStatus::FINISHED);
+            screen->printLog("FCFS: Process completed on core " + std::to_string(coreId));
+            std::cout << "[Scheduler][FCFS] Process '" << screen->getName()
+                << "' finished on core " << coreId << ".\n";
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[Scheduler][FCFS][Exception] Process '" << screen->getName()
+            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+    }
+}
+
+void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int coreId) {
+    try {
+        screen->setCoreAssigned(coreId);
+        std::ofstream logFile(screen->getName() + ".txt", std::ios::app);
+        int executed = 0;
+
+        while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
+            if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+                screen->setStatus(ProcessStatus::FINISHED);
+                break;
+            }
+
+            if (config.delayPerExec > 0) {
+                busyWait(config.delayPerExec);
+            }
+
+            try {
+                auto timestamp = currentTimestamp();
+                logFile << timestamp << " Core:" << coreId
+                    << " \"Executing instruction " << screen->getCurrentInstruction()
+                    << " from process " << screen->getName() << "\"\n";
+                logFile.flush();
+
+                screen->advanceInstruction();
+
+                if (screen->hasError()) {
+                    handleProcessError(screen, "Error encountered during instruction execution.");
+                    break;
+                }
+
+                ++executed;
+            }
+            catch (const std::exception& e) {
+                handleProcessError(screen, e.what());
+                break;
+            }
+        }
+
+        if (!screen->hasError()) {
+            if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+                screen->setStatus(ProcessStatus::FINISHED);
+                screen->printLog("RR: Process completed on core " + std::to_string(coreId));
+                std::cout << "[Scheduler][RR] Process '" << screen->getName()
+                    << "' finished on core " << coreId << ".\n";
+            }
+            else {
+                screen->setStatus(ProcessStatus::READY);
+                addProcess(screen);
+                std::cout << "[Scheduler][RR] Process '" << screen->getName()
+                    << "' yielded after " << executed << " instructions on core "
+                    << coreId << ", re-added to queue.\n";
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[Scheduler][RR][Exception] Process '" << screen->getName()
+            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+    }
+}
+
 void Scheduler::startDummyGeneration() {
-    if (generateDummyProcesses) return; // already running
-    generateDummyProcesses = true;
-    generatorThread = std::thread(&Scheduler::dummyProcessGenerator, this);
-    //std::cout << "[Scheduler] Dummy process generation started.\n";
+    bool expected = false;
+    if (!generatingDummies.compare_exchange_strong(expected, true)) {
+        std::cout << "[Scheduler] Dummy generation already running.\n";
+        return;
+    }
+
+    if (dummyThread.joinable()) {
+        dummyThread.join();
+    }
+
+    dummyThread = std::thread(&Scheduler::dummyProcessLoop, this);
 }
 
-// Stop dummy process generation
 void Scheduler::stopDummyGeneration() {
-    if (!generateDummyProcesses) return;
-    generateDummyProcesses = false;
-    if (generatorThread.joinable())
-        generatorThread.join();
-    //std::cout << "[Scheduler] Dummy process generation stopped.\n";
-}
-
-// Dummy process generator loop
-void Scheduler::dummyProcessGenerator() {
-    int limit = 150; 
-    while (generateDummyProcesses && dummyProcessCounter < limit) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(delayPerExec * dummyGenerationInterval));
-
-        std::cout << "[DEBUG] Generating dummy process #" << dummyProcessCounter + 1 << std::endl;
-
-        auto newProcess = std::make_shared<Screen>();
-        std::stringstream ss;
-        ss << "p" << std::setw(2) << std::setfill('0') << ++dummyProcessCounter;
-        newProcess->setName(ss.str());
-        newProcess->generateDummyInstructions();
-
-        addProcess(newProcess);
+    generatingDummies.store(false);
+    if (dummyThread.joinable()) {
+        dummyThread.join();
     }
-
+    std::cout << "[Scheduler] Dummy generation stopped.\n";
 }
 
-// FCFS scheduling loop
-void Scheduler::fcfsLoop() {
-    while (running) {
-        std::unique_lock<std::mutex> lock(queueMutex);
-        //std::cout << "[Scheduler] FCFS waiting for processes..." << std::endl;
-        cv.wait(lock, [this]() { return !readyQueue.empty() || !running; });
-        if (!running) break;
+void Scheduler::dummyProcessLoop() {
+    std::cout << "[Scheduler] Dummy process generation started.\n";
 
-        //std::cout << "[Scheduler] FCFS processing processes..." << std::endl;
+    try {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_int_distribution<> dist(config.minIns, config.maxIns);
 
-        for (size_t i = 0; i < cpuCores.size(); ++i) {
-            if (!cpuCores[i] && !readyQueue.empty()) {
-                auto process = readyQueue.front();
-                readyQueue.pop();
-                cpuCores[i] = true;
+        dummyCounter = 0;
+        auto lastGenTime = std::chrono::steady_clock::now();
 
-                process->setCoreAssigned(static_cast<int>(i));
-                //std::cout << "[Scheduler] Launching process " << process->getName() << " on core " << i << std::endl;
+        while (generatingDummies.load()) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGenTime).count();
 
-                std::thread([this, process, i]() {
-                    process->setStatus(ProcessStatus::RUNNING);
-                    while (!process->isFinished() && running) {
-                        process->executeNextInstruction();
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    }
-                    {
-                        std::lock_guard<std::mutex> guard(queueMutex);
-                        cpuCores[i] = false;
-                        process->setCoreAssigned(-1);
-                    }
-                    //std::cout << "[Scheduler] Process " << process->getName() << " finished on core " << i << std::endl;
-                    cv.notify_one();
-                    }).detach();
+            if (dummyCounter >= 50) {
+                std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";
+                break;
+            }
+
+            if (elapsedMs >= config.batchFreq) {
+                std::string name = "process" + std::to_string(++dummyCounter);
+                std::cout << "[Scheduler] Generating dummy process: " << name << std::endl;
+
+                auto screen = std::make_shared<Screen>();
+                screen->setName(name);
+                screen->generateDummyInstructions();
+
+                int instructionCount = dist(gen);
+                screen->truncateInstructions(instructionCount);
+
+                screen->setStatus(ProcessStatus::READY);
+                addProcess(screen);
+
+                lastGenTime = now;
+            }
+            else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
     }
+    catch (const std::exception& e) {
+        std::cerr << "[Scheduler] Exception in dummyProcessLoop: " << e.what() << "\n";
+    }
+    catch (...) {
+        std::cerr << "[Scheduler] Unknown exception in dummyProcessLoop.\n";
+    }
+
+    std::cout << "[Scheduler] Dummy process generation ended.\n";
 }
 
-// Round Robin scheduling loop
-void Scheduler::rrLoop() {
-    while (running) {
-        std::unique_lock<std::mutex> lock(queueMutex);
-        cv.wait(lock, [this]() { return !readyQueue.empty() || !running; });
-        if (!running) break;
+std::string Scheduler::currentTimestamp() {
+    time_t now = time(nullptr);
+    tm ltm{};
+#ifdef _WIN32
+    localtime_s(&ltm, &now);
+#else
+    localtime_r(&now, &ltm);
+#endif
+    char buffer[25];
+    strftime(buffer, sizeof(buffer), "(%m/%d/%Y %I:%M:%S %p)", &ltm);
+    return std::string(buffer);
+}
 
-        for (size_t i = 0; i < cpuCores.size(); ++i) {
-            if (!cpuCores[i] && !readyQueue.empty()) {
-                auto process = readyQueue.front();
-                readyQueue.pop();
-                cpuCores[i] = true;
+void Scheduler::handleProcessError(const std::shared_ptr<Screen>& screen, const std::string& message) {
+    screen->setError(true);
+    screen->setStatus(ProcessStatus::FINISHED);
+    screen->printLog("Error during instruction execution: " + message);
+    std::cerr << "[Scheduler][ProcessError] Process '" << screen->getName()
+        << "' encountered an error: " << message << "\n";
+}
 
-                process->setCoreAssigned(static_cast<int>(i));
-                std::cout << "[Scheduler] Launching process " << process->getName() << " on core " << i << " (RR)" << std::endl;
-
-                std::thread([this, process, i]() {
-                    process->setStatus(ProcessStatus::RUNNING);
-                    int cycle = 0;
-                    while (!process->isFinished() && cycle < quantumCycles && running) {
-                        process->executeNextInstruction();
-                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                        ++cycle;
-                    }
-
-                    {
-                        std::lock_guard<std::mutex> guard(queueMutex);
-                        cpuCores[i] = false;
-                        if (!process->isFinished()) {
-                            process->setStatus(ProcessStatus::READY);
-                            readyQueue.push(process);
-                        }
-                        else {
-                            process->setCoreAssigned(-1);
-                        }
-                    }
-                    cv.notify_one();
-                    }).detach();
-            }
-        }
+void Scheduler::busyWait(int delayMs) {
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start)
+        .count() < delayMs)
+    {
+        // busy wait loop
     }
 }
