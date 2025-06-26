@@ -64,7 +64,7 @@ void ProcessManager::listScreens(const Config& config) {
         const std::string& name = pair.first;
         const std::shared_ptr<Screen>& proc = pair.second;
 
-        if (!proc->isFinished() && proc->getCurrentInstruction() > 0) {
+        if (!proc->isFinished() && proc->getCurrentInstruction() > 0 && proc->getCoreAssigned() != -1) {
             cntRunning++;
             std::cout << std::setw(15) << std::left << ("- " + name)
                 << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")

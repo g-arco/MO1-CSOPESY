@@ -1,4 +1,5 @@
 #include "Scheduler.h"
+#include "ProcessManager.h"
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -283,6 +284,7 @@ void Scheduler::dummyProcessLoop() {
                 screen->truncateInstructions(instructionCount);
 
                 screen->setStatus(ProcessStatus::READY);
+				ProcessManager::registerProcess(screen);
                 addProcess(screen);
 
                 lastGenTime = now;
