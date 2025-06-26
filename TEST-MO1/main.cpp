@@ -11,18 +11,6 @@
 bool initialized = false;
 Scheduler* scheduler = nullptr;
 
-// Replace this with your own config loading function or implement Config::load
-void loadConfig(const std::string& filename) {
-    // Example of loading config manually, or implement your own parsing here.
-    // For now, just hardcode for demo:
-    int numCpu = 1;
-    std::string schedulerType = "rr";
-    int quantum = 1;
-    int batchFreq = 1;
-    int minIns = 1;
-    int maxIns = 5;
-    int delayPerExec = 1;
-}
 
 void commandLoop() {
     std::string input;
@@ -50,7 +38,7 @@ void commandLoop() {
             }
 
             try {
-                loadConfig("config.txt");
+                config.loadConfig("config.txt");
 
                 std::cout << "\nConfiguration Loaded:\n";
                 std::cout << "Number of CPUs: " << config.numCpu << "\n";
@@ -64,15 +52,12 @@ void commandLoop() {
                 scheduler = new Scheduler(config);
                 initialized = true;
 
-
-
                 std::cout << "System initialized successfully.\n\n";
             }
             catch (const std::exception& e) {
                 std::cerr << "Failed to initialize system: " << e.what() << "\n";
             }
         }
-
         else if (!initialized) {
             std::cout << "Command not available. Please run 'initialize' first.\n";
         }
