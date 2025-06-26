@@ -18,12 +18,23 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
         instructions.push_back(instr);
     }
 
-    auto screen = std::make_shared<Screen>(name, instructions);
-    registerProcess(screen);
+    /*
+        std::thread([screen]() {
+        screen->setStatus(ProcessStatus::RUNNING);
+        while (!screen->isFinished()) {
+            screen->executeNextInstruction();
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }).detach();
+    */
 
-    scheduler.addProcess(screen);  // ✅ Correct usage
-    screen->showScreen();          // Console UI (optional after execution)
+    // Immediately show the process screen
+    auto screen = std::make_shared<Screen>(name, instructions);
+    screen->setStatus(ProcessStatus::READY); // Ensure it starts as READY
+    registerProcess(screen);
+    screen->showScreen();
 }
+
 
 
 

@@ -53,6 +53,7 @@ private:
     int coreAssigned;
 
     void updateTimestamp();
+    void assignCoreIfUnassigned(int totalCores);  // ✅ Add this line
 };
 
 #endif
