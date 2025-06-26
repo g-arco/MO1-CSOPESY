@@ -172,18 +172,75 @@ void Screen::printLog(const std::string& msg) {
 }
 
 void Screen::showScreen() {
-    std::string procName = getName();
-    ProcessStatus procStatus = getStatus();
-    size_t currInstr = getCurrentInstruction();
-    size_t totalInstr = getTotalInstructions();
+        while (true) {
+            // Clear screen
+#ifdef _WIN32
+            system("cls");
+#else
+            system("clear");
+#endif
 
-    std::cout << "Process: " << procName << " - Status: ";
-    switch (procStatus) {
-    case ProcessStatus::READY: std::cout << "READY"; break;
-    case ProcessStatus::RUNNING: std::cout << "RUNNING"; break;
-    case ProcessStatus::FINISHED: std::cout << "FINISHED"; break;
-    }
-    std::cout << " (" << currInstr << "/" << totalInstr << ")\n";
+            std::cout << "========== PROCESS SCREEN ==========\n";
+            std::cout << "Process Name: " << getName() << "\n";
+            std::cout << "Enter a command (process-smi / exit): ";
+
+            std::string input;
+                std::getline(std::cin, input);
+
+            if (input == "exit") {
+                break;
+            }
+            else if (input == "process-smi") {
+#ifdef _WIN32
+                system("cls");
+#else
+                system("clear");
+#endif
+
+                std::cout << "========== PROCESS INFO ==========\n";
+                std::cout << "Process Name:   " << getName() << "\n";
+                std::cout << "ID:             " << getCreationTimestamp() << "\n";
+                std::cout << "Core Assigned:  " << getCoreAssigned() << "\n";
+
+                std::cout << "\n========== LOGS ==========\n";
+                logFile.flush(); // Ensure all logs are written
+
+                std::ifstream readLog(name + ".log");
+                bool hasLogs = false;
+
+                if (readLog.is_open()) {
+                    std::string line;
+                    while (std::getline(readLog, line)) {
+                        if (!line.empty()) {
+                            hasLogs = true;
+                            std::cout << line << "\n";
+                        }
+                    }
+                    readLog.close();
+                }
+
+                if (!hasLogs) {
+                    std::cout << "[No logs available for this process]\n";
+                }
+
+                std::cout << "\nCurrent Instruction Line: " << getCurrentInstruction() << "\n";
+                std::cout << "Lines of Code:            " << getTotalInstructions() << "\n";
+
+                std::cout << "Status:                   ";
+                switch (getStatus()) {
+                case ProcessStatus::READY: std::cout << "READY"; break;
+                case ProcessStatus::RUNNING: std::cout << "RUNNING"; break;
+                case ProcessStatus::FINISHED: std::cout << "FINISHED"; break;
+                }
+
+                std::cout << "\n\nPress ENTER to return to command menu...";
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+            }
+            else {
+                std::cout << "Unknown command. Use 'process-smi' or 'exit'.\n\n";
+            }
+        }
 }
 
 void Screen::setError(bool err) {
