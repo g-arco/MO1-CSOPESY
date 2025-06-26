@@ -1,11 +1,22 @@
+<<<<<<< HEAD
 <<<<<<< Updated upstream
+=======
+<<<<<<< HEAD
+(06/26/2025 04:22:36 PM) Core:1 "Hello world from process8!"
+(06/26/2025 04:22:36 PM) Core:1 "Hello world from process8!"
+=======
+>>>>>>> scheduler
 (06/26/2025 10:11:02 PM) Core:0 "Hello world from process8!"
 (06/26/2025 10:11:02 PM) Core:0 "Hello world from process8!"
 (06/26/2025 10:16:54 PM) Core:3 "Executing instruction 1 from process process8"
 (06/26/2025 10:16:54 PM) Core:3 "Executing instruction 2 from process process8"
 (06/26/2025 10:18:17 PM) Core:0 "Executing instruction 1 from process process8"
 (06/26/2025 10:18:17 PM) Core:1 "Executing instruction 2 from process process8"
+<<<<<<< HEAD
 =======
 (06/27/2025 12:42:06 AM) Core:0 "Hello world from process8!"
 (06/27/2025 12:42:06 AM) Core:0 "Hello world from process8!"
 >>>>>>> Stashed changes
+=======
+>>>>>>> 2ae115fd1364799a04cf9c2383b62dee3566dfcf
+>>>>>>> scheduler
