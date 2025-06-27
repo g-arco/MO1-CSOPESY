@@ -147,6 +147,12 @@ void Screen::advanceInstruction() {
 
 void Screen::showScreen() {
     while (true) {
+        #ifdef _WIN32
+            system("cls");
+        #else
+            system("clear");
+        #endif
+
         std::cout << "root:\\> (process-smi / exit): ";
         std::string input;
         std::getline(std::cin, input);
@@ -187,7 +193,8 @@ void Screen::showScreen() {
                 case ProcessStatus::FINISHED: std::cout << "\nFinished!"; break;
             }
 
-            std::cout << "\n\n";
+            std::cout << "\n\nPress ENTER to continue...";
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
         } else {
             std::cout << "Unknown command. Use 'process-smi' or 'exit'.\n\n";
         }

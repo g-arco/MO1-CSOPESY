@@ -17,25 +17,52 @@ void ProcessManager::setScheduler(Scheduler* sched) {
 }
 
 void ProcessManager::createAndAttach(const std::string& name, const Config& config) {
-
-
     std::vector<Instruction> instructions;
     int numInstructions = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
 
+    // For symbol table instructions, we need some variable names
+    std::vector<std::string> variables = { "x", "y", "z", "a", "b", "c" };
+
     for (int i = 0; i < numInstructions; ++i) {
         Instruction instr;
-        instr.type = static_cast<InstructionType>(rand() % 2); // 0 = PRINT, 1 = SLEEP
-        if (instr.type == InstructionType::PRINT) {
-            instr.args = { "Hello from " + name };
-        } else {
-            instr.args = { std::to_string(rand() % 3 + 1) }; // sleep 1-3 sec
+        int choice = rand() % 5;  // Choose between 5 types
+
+        switch (choice) {
+            case 0:  // DECLARE
+            {
+                std::string var = variables[rand() % variables.size()];
+                int value = rand() % 20 + 1;
+                instr.type = InstructionType::DECLARE;
+                instr.args = { var, std::to_string(value) };
+                break;
+            }
+            case 1:  // ADD
+            case 2:  // SUBTRACT
+            {
+                std::string dest = variables[rand() % variables.size()];
+                std::string op1 = variables[rand() % variables.size()];
+                std::string op2 = variables[rand() % variables.size()];
+                instr.type = (choice == 1) ? InstructionType::ADD : InstructionType::SUBTRACT;
+                instr.args = { dest, op1, op2 };
+                break;
+            }
+            case 3:  // PRINT
+                instr.type = InstructionType::PRINT;
+                instr.args = { "Hello from " + name };
+                break;
+            case 4:  // SLEEP
+                instr.type = InstructionType::SLEEP;
+                instr.args = { std::to_string(rand() % 3 + 1) }; // 1–3 seconds
+                break;
         }
+
         instructions.push_back(instr);
     }
 
     auto screen = std::make_shared<Screen>(name, instructions, globalProcessId++);
     registerProcess(screen);
 }
+
 
 void ProcessManager::resumeScreen(const std::string& name) {
     std::lock_guard<std::mutex> lock(processMutex);
