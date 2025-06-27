@@ -37,7 +37,6 @@ class Screen {
 public:
     Screen();
     Screen(const std::string& name, const std::vector<Instruction>& instrs);
-    std::unordered_map<std::string, int> memory;  
 
 
     void generateDummyInstructions();
