@@ -64,6 +64,7 @@ public:
 
     void printLog(const std::string& msg);
     int getProcessId() const;
+    void setProcessId(int id) { processId = id; }
 private:
     void updateTimestamp();
     void assignCoreIfUnassigned(int totalCores);

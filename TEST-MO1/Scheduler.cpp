@@ -12,6 +12,8 @@
 #include <fstream>
 #include <ctime>
 
+extern int globalProcessId;
+
 extern Config config;
 extern std::atomic<int> activeCores;
 std::atomic<int> cpuTicks(0);
@@ -269,7 +271,7 @@ void Scheduler::dummyProcessLoop() {
 
             if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);
-                std::cout << "[Scheduler] Generating dummy process: " << name << std::endl;
+                std::cout << "[Scheduler] Generating dummy process: " << name << " (ID: " << globalProcessId << ")\n";
 
                 auto screen = std::make_shared<Screen>();
                 screen->setName(name);
@@ -277,7 +279,7 @@ void Scheduler::dummyProcessLoop() {
 
                 int instructionCount = dist(gen);
                 screen->truncateInstructions(instructionCount);
-
+                screen->setProcessId(globalProcessId++);
                 screen->setStatus(ProcessStatus::READY);
 				ProcessManager::registerProcess(screen);
                 addProcess(screen);
