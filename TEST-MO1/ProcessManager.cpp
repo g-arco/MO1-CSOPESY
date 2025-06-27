@@ -15,13 +15,23 @@ void ProcessManager::setScheduler(Scheduler* sched) {
 }
 
 void ProcessManager::createAndAttach(const std::string& name, const Config& config) {
-    auto screen = std::make_shared<Screen>(name, std::vector<Instruction>{
-        { InstructionType::PRINT, { "Hello world from " + name + "!" } }
-    });
+    std::vector<Instruction> instructions;
+    int numInstructions = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
 
-    registerProcess(screen);
+    for (int i = 0; i < numInstructions; ++i) {
+        Instruction instr;
+        instr.type = static_cast<InstructionType>(rand() % 3); // PRINT, SLEEP, INVALID
+        instr.args = { "Hello world from " + name + "!" };
+        instructions.push_back(instr);
+    }
+
+    auto screen = std::make_shared<Screen>(name, instructions);
+    screen->setStatus(ProcessStatus::READY);
+
+    registerProcess(screen); // This already adds to scheduler if available
     screen->showScreen();
 }
+
 
 void ProcessManager::resumeScreen(const std::string& name) {
     std::lock_guard<std::mutex> lock(processMutex);
