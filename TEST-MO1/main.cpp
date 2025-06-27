@@ -99,7 +99,6 @@ void commandLoop() {
                         auto proc = ProcessManager::getProcess(name);
                         scheduler->addProcess(proc);
                         std::cout << "[Main] Screen '" << name << "' added to scheduler queue.\n";
-                        proc->showScreen();
                     }
                 }
             }

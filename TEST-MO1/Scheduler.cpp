@@ -12,6 +12,8 @@
 #include <fstream>
 #include <ctime>
 
+extern int globalProcessId;
+
 extern Config config;
 extern std::atomic<int> activeCores;
 std::atomic<int> cpuTicks(0);
@@ -211,22 +213,17 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         if (!screen->hasError()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
-                screen->printLog("RR: Process completed on core " + std::to_string(coreId));
-                std::cout << "[Scheduler][RR] Process '" << screen->getName()
-                    << "' finished on core " << coreId << ".\n";
+
             }
             else {
                 screen->setStatus(ProcessStatus::READY);
                 addProcess(screen);
-                std::cout << "[Scheduler][RR] Process '" << screen->getName()
-                    << "' yielded after " << executed << " instructions on core "
-                    << coreId << ", re-added to queue.\n";
+
             }
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "[Scheduler][RR][Exception] Process '" << screen->getName()
-            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+
     }
 }
 
@@ -274,7 +271,7 @@ void Scheduler::dummyProcessLoop() {
 
             if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);
-                std::cout << "[Scheduler] Generating dummy process: " << name << std::endl;
+                std::cout << "[Scheduler] Generating dummy process: " << name << " (ID: " << globalProcessId << ")\n";
 
                 auto screen = std::make_shared<Screen>();
                 screen->setName(name);
@@ -282,7 +279,7 @@ void Scheduler::dummyProcessLoop() {
 
                 int instructionCount = dist(gen);
                 screen->truncateInstructions(instructionCount);
-
+                screen->setProcessId(globalProcessId++);
                 screen->setStatus(ProcessStatus::READY);
 				ProcessManager::registerProcess(screen);
                 addProcess(screen);

@@ -6,6 +6,8 @@
 #include <unordered_set>
 #include <mutex>
 
+int globalProcessId = 1;
+
 std::map<std::string, std::shared_ptr<Screen>> ProcessManager::processes;
 std::mutex ProcessManager::processMutex;
 Scheduler* ProcessManager::scheduler = nullptr;
@@ -15,6 +17,8 @@ void ProcessManager::setScheduler(Scheduler* sched) {
 }
 
 void ProcessManager::createAndAttach(const std::string& name, const Config& config) {
+
+
     std::vector<Instruction> instructions;
     int numInstructions = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
 
@@ -29,10 +33,9 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
         instructions.push_back(instr);
     }
 
-    auto screen = std::make_shared<Screen>(name, instructions);
+    auto screen = std::make_shared<Screen>(name, instructions, globalProcessId++);
     registerProcess(screen);
 }
-
 
 void ProcessManager::resumeScreen(const std::string& name) {
     std::lock_guard<std::mutex> lock(processMutex);
