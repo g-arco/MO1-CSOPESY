@@ -59,7 +59,8 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
         instructions.push_back(instr);
     }
 
-    auto screen = std::make_shared<Screen>(name, instructions, globalProcessId++);
+    // After:
+    auto screen = std::make_shared<Screen>(name, std::vector<Instruction>{}, globalProcessId++);
     registerProcess(screen);
 }
 

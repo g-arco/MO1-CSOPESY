@@ -10,6 +10,8 @@
 #include "CLIUtils.h"
 #include <unordered_map>
 
+bool scheduled = false;
+
 // Constructor
 Screen::Screen()
     : name("default"), instructionPointer(0),
@@ -182,10 +184,15 @@ void Screen::showScreen() {
                 std::cout << "[No logs available for this process]\n";
             }
 
-            if (getStatus() != ProcessStatus::FINISHED) {
+            if (!isScheduled()) {
+        std::cout << "\nCurrent Instruction Line: 0\n";
+        std::cout << "Lines of Code:            0\n";
+            } else if (getStatus() != ProcessStatus::FINISHED) {
                 std::cout << "\nCurrent Instruction Line: " << getCurrentInstruction() << "\n";
                 std::cout << "Lines of Code:            " << getTotalInstructions() << "\n";
             }
+
+
 
             switch (getStatus()) {
                 case ProcessStatus::READY: std::cout << "\nReady!"; break;
@@ -257,6 +264,26 @@ size_t Screen::getCurrentInstruction() const {
     std::lock_guard<std::mutex> lock(mtx);
     return instructionPointer + 1;
 }
+
+void Screen::setInstructions(const std::vector<Instruction>& instrs) {
+    std::lock_guard<std::mutex> lock(mtx);
+    instructions = instrs;
+    instructionPointer = 0;
+    scheduled = true;
+    status = ProcessStatus::READY;
+}
+
+void Screen::setScheduled(bool value) {
+    std::lock_guard<std::mutex> lock(mtx);
+    scheduled = value;
+}
+
+bool Screen::isScheduled() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return scheduled;
+}
+
+
 
 size_t Screen::getTotalInstructions() const {
     std::lock_guard<std::mutex> lock(mtx);

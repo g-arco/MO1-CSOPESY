@@ -37,6 +37,10 @@ class Screen {
 public:
     Screen();
     Screen(const std::string &name_, const std::vector<Instruction> &instrs, int id);
+    void setInstructions(const std::vector<Instruction>& instrs);
+    void setScheduled(bool value);
+    bool isScheduled() const;
+
 
     void generateDummyInstructions();
     void executeNextInstruction();

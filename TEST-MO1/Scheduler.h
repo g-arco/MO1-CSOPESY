@@ -29,6 +29,8 @@ public:
 private:
     enum class InternalSchedulerType { FCFS, RR };
 
+    bool scheduled = false;
+
     // Worker thread function for each CPU core
     void worker(int coreId);
 

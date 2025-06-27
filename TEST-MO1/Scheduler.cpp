@@ -79,6 +79,7 @@ void Scheduler::addProcess(const std::shared_ptr<Screen>& process) {
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         screenQueue.push(process);
+        
     }
     cv.notify_one();
 }
@@ -107,6 +108,8 @@ void Scheduler::worker(int coreId) {
                 screen = screenQueue.front();
                 screenQueue.pop();
                 screen->setCoreAssigned(coreId);
+                screen->setScheduled(true);
+
             }
         }
 
