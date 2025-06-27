@@ -20,16 +20,17 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
 
     for (int i = 0; i < numInstructions; ++i) {
         Instruction instr;
-        instr.type = static_cast<InstructionType>(rand() % 3); // PRINT, SLEEP, INVALID
-        instr.args = { "Hello world from " + name + "!" };
+        instr.type = static_cast<InstructionType>(rand() % 2); // 0 = PRINT, 1 = SLEEP
+        if (instr.type == InstructionType::PRINT) {
+            instr.args = { "Hello from " + name };
+        } else {
+            instr.args = { std::to_string(rand() % 3 + 1) }; // sleep 1-3 sec
+        }
         instructions.push_back(instr);
     }
 
     auto screen = std::make_shared<Screen>(name, instructions);
-    screen->setStatus(ProcessStatus::READY);
-
-    registerProcess(screen); // This already adds to scheduler if available
-    screen->showScreen();
+    registerProcess(screen);
 }
 
 
@@ -103,6 +104,15 @@ void ProcessManager::listScreens(const Config& config) {
     if (cntFinished == 0) std::cout << "No finished processes.\n";
 
     std::cout << "----------------------------------------\n\n";
+}
+
+std::vector<std::shared_ptr<Screen>> ProcessManager::getAllProcesses() {
+    std::lock_guard<std::mutex> lock(processMutex);
+    std::vector<std::shared_ptr<Screen>> all;
+    for (const auto& p : processes) {
+        all.push_back(p.second);
+    }
+    return all;
 }
 
 void ProcessManager::generateReport() {

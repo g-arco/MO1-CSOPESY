@@ -19,6 +19,7 @@ public:
     static void generateReport();
     static void registerProcess(std::shared_ptr<Screen> process);
 
+    static std::vector<std::shared_ptr<Screen>> getAllProcesses();
     static bool hasProcess(const std::string& name);
     static std::shared_ptr<Screen> getProcess(const std::string& name);
 

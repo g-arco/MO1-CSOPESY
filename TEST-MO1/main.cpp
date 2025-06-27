@@ -11,7 +11,6 @@
 bool initialized = false;
 Scheduler* scheduler = nullptr;
 
-
 void commandLoop() {
     std::string input;
     CLIUtils::clearScreen();
@@ -53,8 +52,7 @@ void commandLoop() {
                 initialized = true;
 
                 std::cout << "System initialized successfully.\n\n";
-            }
-            catch (const std::exception& e) {
+            } catch (const std::exception& e) {
                 std::cerr << "Failed to initialize system: " << e.what() << "\n";
             }
         }
@@ -64,9 +62,16 @@ void commandLoop() {
         else if (cmd == "scheduler-start") {
             if (!scheduler) {
                 std::cout << "System not initialized. Use `initialize` first.\n";
-            }
-            else {
+            } else {
                 scheduler->start();
+
+                auto allProcs = ProcessManager::getAllProcesses(); // Ensure this returns references or pointers
+                for (const auto& proc : allProcs) {
+                    if (proc->getStatus() == ProcessStatus::READY) {
+                        proc->setStatus(ProcessStatus::RUNNING);
+                    }
+                }
+
                 scheduler->startDummyGeneration();
             }
         }
@@ -86,18 +91,14 @@ void commandLoop() {
 
                 if (name.empty()) {
                     std::cout << "Please provide a screen name.\n";
-                }
-                else {
+                } else {
                     if (ProcessManager::hasProcess(name)) {
                         std::cout << "Screen with name '" << name << "' already exists. Use 'screen -r " << name << "' to resume.\n";
-                    }
-                    else {
+                    } else {
                         ProcessManager::createAndAttach(name, config);
-
                         auto proc = ProcessManager::getProcess(name);
                         scheduler->addProcess(proc);
                         std::cout << "[Main] Screen '" << name << "' added to scheduler queue.\n";
-
                         proc->showScreen();
                     }
                 }
@@ -108,11 +109,9 @@ void commandLoop() {
 
                 if (name.empty()) {
                     std::cout << "Please specify a screen name to resume.\n";
-                }
-                else if (!ProcessManager::getProcess(name)) {
+                } else if (!ProcessManager::getProcess(name)) {
                     std::cout << "No screen found with the name '" << name << "'.\n";
-                }
-                else {
+                } else {
                     ProcessManager::getProcess(name)->showScreen();
                 }
             }

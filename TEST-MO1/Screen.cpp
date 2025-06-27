@@ -31,16 +31,26 @@ Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs)
 
 void Screen::executeNextInstruction() {
     std::lock_guard<std::mutex> lock(mtx);
-
-    assignCoreIfUnassigned(4);
-
-    if (status == ProcessStatus::FINISHED || instructionPointer >= instructions.size()) {
-        status = ProcessStatus::FINISHED;
-        printLog("Process finished execution.");
+    if (status != ProcessStatus::RUNNING) {
+        std::cout << "[INFO] This process is READY but hasn't been started by the scheduler.\n";
         return;
     }
 
-    status = ProcessStatus::RUNNING;
+    assignCoreIfUnassigned(4);
+
+    // Prevent running if no instructions yet
+    if (instructions.empty()) {
+        printLog("No instructions loaded yet. Wait for scheduler.");
+        std::cout << "[INFO] Process not yet scheduled. Please run 'scheduler-start'.\n";
+        return;
+    }
+
+    if (status == ProcessStatus::FINISHED || instructionPointer >= instructions.size()) {
+        status = ProcessStatus::FINISHED;
+        printLog("Process already finished.");
+        return;
+    }
+
     const Instruction& instr = instructions[instructionPointer];
 
     if (instr.type == InstructionType::PRINT && !instr.args.empty()) {
@@ -65,16 +75,7 @@ void Screen::executeNextInstruction() {
         }
 
         std::cout << logEntry << std::endl;
-    } else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
-        try {
-            int duration = std::stoi(instr.args[0]);
-            std::cout << "[INFO] Sleeping for " << duration << " second(s)..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(duration));
-        } catch (...) {
-            std::cerr << "[ERROR] Invalid sleep duration: " << instr.args[0] << "\n";
-            errorFlag = true;
-        }
-    }
+    } 
 
     instructionPointer++;
     if (instructionPointer >= instructions.size()) {
@@ -113,7 +114,12 @@ void Screen::showScreen() {
         if (input == "exit") {
             break;
         } else if (input == "process-smi") {
-            // Don't clear screen again here
+            if (getTotalInstructions() == 0) {
+                std::cout << "[INFO] This process has not been scheduled yet. Please run 'scheduler-start'.\n";
+                std::cout << "\nPress ENTER to continue...";
+                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+                continue;
+            }
 
             executeNextInstruction();
 
@@ -140,8 +146,12 @@ void Screen::showScreen() {
                 std::cout << "[No logs available for this process]\n";
             }
 
-            std::cout << "\nCurrent Instruction Line: " << getCurrentInstruction() << "\n";
-            std::cout << "Lines of Code:            " << getTotalInstructions() << "\n";
+            std::cout << "\nCurrent Instruction Line: "
+          << (getStatus() == ProcessStatus::READY ? 0 : getCurrentInstruction())
+          << "\n";
+            std::cout << "Lines of Code:            "
+          << (getStatus() == ProcessStatus::READY ? 0 : getTotalInstructions())
+          << "\n";
 
             std::cout << "Status:                   ";
             switch (getStatus()) {
