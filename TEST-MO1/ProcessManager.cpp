@@ -15,6 +15,8 @@ void ProcessManager::setScheduler(Scheduler* sched) {
 }
 
 void ProcessManager::createAndAttach(const std::string& name, const Config& config) {
+    static int nextId = 1; 
+
     std::vector<Instruction> instructions;
     int numInstructions = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
 
@@ -29,10 +31,9 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
         instructions.push_back(instr);
     }
 
-    auto screen = std::make_shared<Screen>(name, instructions);
+    auto screen = std::make_shared<Screen>(name, instructions, nextId++);
     registerProcess(screen);
 }
-
 
 void ProcessManager::resumeScreen(const std::string& name) {
     std::lock_guard<std::mutex> lock(processMutex);

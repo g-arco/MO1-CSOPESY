@@ -211,22 +211,17 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         if (!screen->hasError()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
-                screen->printLog("RR: Process completed on core " + std::to_string(coreId));
-                std::cout << "[Scheduler][RR] Process '" << screen->getName()
-                    << "' finished on core " << coreId << ".\n";
+
             }
             else {
                 screen->setStatus(ProcessStatus::READY);
                 addProcess(screen);
-                std::cout << "[Scheduler][RR] Process '" << screen->getName()
-                    << "' yielded after " << executed << " instructions on core "
-                    << coreId << ", re-added to queue.\n";
+
             }
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "[Scheduler][RR][Exception] Process '" << screen->getName()
-            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+
     }
 }
 

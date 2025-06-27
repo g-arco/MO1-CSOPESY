@@ -8,19 +8,20 @@
 #include <thread>
 #include <limits>
 #include "CLIUtils.h"
+#include <unordered_map>
 
 // Constructor
 Screen::Screen()
     : name("default"), instructionPointer(0),
-      status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false)
+      status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false), processId(0)
 {
     updateTimestamp();
     instructions.clear();
 }
 
-Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs)
+Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs, int id)
     : name(name_), instructions(instrs), instructionPointer(0),
-      status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false)
+      status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false), processId(id)
 {
     updateTimestamp();
     logFile.open(name + ".log", std::ios::app);
@@ -29,16 +30,22 @@ Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs)
     }
 }
 
-void Screen::executeNextInstruction() {
-    std::lock_guard<std::mutex> lock(mtx);
-    if (status != ProcessStatus::RUNNING) {
-        std::cout << "[INFO] This process is READY but hasn't been started by the scheduler.\n";
-        return;
-    }
+bool Screen::isNumber(const std::string& s) const {
+    if (s.empty()) return false;
+    for (char c : s)
+        if (!isdigit(c) && c != '-') return false;
+    return true;
+}
 
+int Screen::resolveValue(const std::string& token) {
+    if (isNumber(token)) return std::stoi(token);
+    if (memory.count(token)) return memory[token];
+    throw std::runtime_error("Unknown variable: " + token);
+}
+
+void Screen::executeNextInstruction() {
     assignCoreIfUnassigned(4);
 
-    // Prevent running if no instructions yet
     if (instructions.empty()) {
         printLog("No instructions loaded yet. Wait for scheduler.");
         std::cout << "[INFO] Process not yet scheduled. Please run 'scheduler-start'.\n";
@@ -75,7 +82,49 @@ void Screen::executeNextInstruction() {
         }
 
         std::cout << logEntry << std::endl;
-    } 
+    } else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
+        try {
+            int duration = std::stoi(instr.args[0]);
+            std::cout << "[INFO] Sleeping for " << duration << " second(s)..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(duration));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid sleep duration: " << instr.args[0] << "\n";
+            errorFlag = true;
+        }
+    } else if (instr.type == InstructionType::DECLARE && instr.args.size() == 2) {
+        const std::string& varName = instr.args[0];
+        try {
+            int value = std::stoi(instr.args[1]);
+            memory[varName] = value;
+            std::cout << "[INFO] DECLARE: " << varName << " = " << value << std::endl;
+            printLog("DECLARE " + varName + " = " + std::to_string(value));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid DECLARE value: " << instr.args[1] << std::endl;
+            errorFlag = true;
+        }
+    } else if (instr.type == InstructionType::ADD && instr.args.size() == 2) {
+        const std::string& varName = instr.args[0];
+        try {
+            int value = std::stoi(instr.args[1]);
+            memory[varName] += value;
+            std::cout << "[INFO] ADD: " << varName << " += " << value << " (New: " << memory[varName] << ")\n";
+            printLog("ADD " + varName + " + " + std::to_string(value));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid ADD value: " << instr.args[1] << std::endl;
+            errorFlag = true;
+        }
+    } else if (instr.type == InstructionType::SUBTRACT && instr.args.size() == 2) {
+        const std::string& varName = instr.args[0];
+        try {
+            int value = std::stoi(instr.args[1]);
+            memory[varName] -= value;
+            std::cout << "[INFO] SUBTRACT: " << varName << " -= " << value << " (New: " << memory[varName] << ")\n";
+            printLog("SUBTRACT " + varName + " - " + std::to_string(value));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid SUBTRACT value: " << instr.args[1] << std::endl;
+            errorFlag = true;
+        }
+    }
 
     instructionPointer++;
     if (instructionPointer >= instructions.size()) {
@@ -98,37 +147,18 @@ void Screen::advanceInstruction() {
 
 void Screen::showScreen() {
     while (true) {
-#ifdef _WIN32
-        system("cls");
-#else
-        system("clear");
-#endif
-
-        std::cout << "========== PROCESS SCREEN ==========\n";
-        std::cout << "Process Name: " << getName() << "\n";
-        std::cout << "Enter a command (process-smi / exit): ";
-
+        std::cout << "root:\\> (process-smi / exit): ";
         std::string input;
         std::getline(std::cin, input);
 
         if (input == "exit") {
             break;
         } else if (input == "process-smi") {
-            if (getTotalInstructions() == 0) {
-                std::cout << "[INFO] This process has not been scheduled yet. Please run 'scheduler-start'.\n";
-                std::cout << "\nPress ENTER to continue...";
-                std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
-                continue;
-            }
-
             executeNextInstruction();
 
-            std::cout << "========== PROCESS INFO ==========\n";
-            std::cout << "Process Name:   " << getName() << "\n";
-            std::cout << "ID:             " << getCreationTimestamp() << "\n";
-            std::cout << "Core Assigned:  " << getCoreAssigned() << "\n";
-
-            std::cout << "\n========== LOGS ==========\n";
+            std::cout << "\nProcess Name:   " << getName() << "\n";
+            std::cout << "Process ID:     " << getProcessId() << "\n";
+            std::cout << "Logs:\n";
             std::ifstream readLog(name + ".log");
             bool hasLogs = false;
             if (readLog.is_open()) {
@@ -146,22 +176,18 @@ void Screen::showScreen() {
                 std::cout << "[No logs available for this process]\n";
             }
 
-            std::cout << "\nCurrent Instruction Line: "
-          << (getStatus() == ProcessStatus::READY ? 0 : getCurrentInstruction())
-          << "\n";
-            std::cout << "Lines of Code:            "
-          << (getStatus() == ProcessStatus::READY ? 0 : getTotalInstructions())
-          << "\n";
-
-            std::cout << "Status:                   ";
-            switch (getStatus()) {
-                case ProcessStatus::READY: std::cout << "READY"; break;
-                case ProcessStatus::RUNNING: std::cout << "RUNNING"; break;
-                case ProcessStatus::FINISHED: std::cout << "FINISHED"; break;
+            if (getStatus() != ProcessStatus::FINISHED) {
+                std::cout << "\nCurrent Instruction Line: " << getCurrentInstruction() << "\n";
+                std::cout << "Lines of Code:            " << getTotalInstructions() << "\n";
             }
 
-            std::cout << "\n\nPress ENTER to continue...";
-            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+            switch (getStatus()) {
+                case ProcessStatus::READY: std::cout << "\nReady!"; break;
+                case ProcessStatus::RUNNING: std::cout << "\nRunning!"; break;
+                case ProcessStatus::FINISHED: std::cout << "\nFinished!"; break;
+            }
+
+            std::cout << "\n\n";
         } else {
             std::cout << "Unknown command. Use 'process-smi' or 'exit'.\n\n";
         }
@@ -185,7 +211,7 @@ void Screen::generateDummyInstructions() {
 void Screen::printLog(const std::string& msg) {
     std::lock_guard<std::mutex> lock(mtx);
     if (logFile.is_open()) {
-        logFile << "[" << creationTimestamp << "] " << msg << std::endl;
+        logFile << "(" << creationTimestamp << ") " << msg << std::endl;
         logFile.flush();
     }
 }
@@ -280,6 +306,10 @@ std::string Screen::getTimestamp() const {
     localtime_r(&tnow, &localTime);
 #endif
     char buffer[20];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", &localTime);
+    std::strftime(buffer, sizeof(buffer), "%Y/%m/%d %H:%M:%S", &localTime);
     return std::string(buffer);
+}
+
+int Screen::getProcessId() const {
+    return processId;
 }
