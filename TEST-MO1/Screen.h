@@ -5,6 +5,7 @@
 #include <vector>
 #include <fstream>
 #include <mutex>
+#include <unordered_map>
 
 // Enum for process status
 enum class ProcessStatus {
@@ -18,7 +19,11 @@ enum class ProcessStatus {
 // Enum for instruction types
 enum class InstructionType {
     PRINT,
+    DECLARE,
+    ADD,
+    SUBTRACT,
     SLEEP,
+    FOR,
     INVALID
 };
 
@@ -30,14 +35,18 @@ struct Instruction {
 
 class Screen {
 public:
-    // Constructors
     Screen();
     Screen(const std::string& name, const std::vector<Instruction>& instrs);
 
-    // Accessors and mutators
+
+    void generateDummyInstructions();
+    void executeNextInstruction();
+    void advanceInstruction();
+    void truncateInstructions(int n);
+    void showScreen();
+
     std::string getName() const;
     void setName(const std::string& newName);
-
     std::string getCreationTimestamp() const;
     std::string getTimestamp() const;
 
@@ -54,21 +63,19 @@ public:
     void setError(bool err = true);
     bool hasError() const;
 
-     void advanceInstruction();
-    // Operations
-    void generateDummyInstructions();
-    void executeNextInstruction();
     void printLog(const std::string& msg);
-    void showScreen();
-    void truncateInstructions(int n);
 
 private:
     void updateTimestamp();
     void assignCoreIfUnassigned(int totalCores);
+    bool isNumber(const std::string& s) const;
+    int resolveValue(const std::string& token);
 
     std::string name;
     std::vector<Instruction> instructions;
     size_t instructionPointer;
+
+    std::unordered_map<std::string, int> memory;
 
     ProcessStatus status;
     int coreAssigned;

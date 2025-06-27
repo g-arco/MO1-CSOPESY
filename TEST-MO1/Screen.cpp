@@ -8,6 +8,8 @@
 #include <thread>
 #include <limits>
 #include "CLIUtils.h"
+#include <unordered_map> 
+
 
 // Constructor
 Screen::Screen()
@@ -27,6 +29,19 @@ Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs)
     if (!logFile.is_open()) {
         std::cerr << "Failed to open log file for process: " << name << std::endl;
     }
+}
+
+bool Screen::isNumber(const std::string& s) const {
+    if (s.empty()) return false;
+    for (char c : s)
+        if (!isdigit(c) && c != '-') return false;
+    return true;
+}
+
+int Screen::resolveValue(const std::string& token) {
+    if (isNumber(token)) return std::stoi(token);
+    if (memory.count(token)) return memory[token];
+    throw std::runtime_error("Unknown variable: " + token);
 }
 
 void Screen::executeNextInstruction() {
@@ -75,7 +90,49 @@ void Screen::executeNextInstruction() {
         }
 
         std::cout << logEntry << std::endl;
-    } 
+    } else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
+        try {
+            int duration = std::stoi(instr.args[0]);
+            std::cout << "[INFO] Sleeping for " << duration << " second(s)..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(duration));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid sleep duration: " << instr.args[0] << "\n";
+            errorFlag = true;
+        }
+    } else if (instr.type == InstructionType::DECLARE && instr.args.size() == 2) {
+        const std::string& varName = instr.args[0];
+        try {
+            int value = std::stoi(instr.args[1]);
+            memory[varName] = value;
+            std::cout << "[INFO] DECLARE: " << varName << " = " << value << std::endl;
+            printLog("DECLARE " + varName + " = " + std::to_string(value));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid DECLARE value: " << instr.args[1] << std::endl;
+            errorFlag = true;
+        }
+    } else if (instr.type == InstructionType::ADD && instr.args.size() == 2) {
+        const std::string& varName = instr.args[0];
+        try {
+            int value = std::stoi(instr.args[1]);
+            memory[varName] += value;
+            std::cout << "[INFO] ADD: " << varName << " += " << value << " (New: " << memory[varName] << ")\n";
+            printLog("ADD " + varName + " + " + std::to_string(value));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid ADD value: " << instr.args[1] << std::endl;
+            errorFlag = true;
+        }
+    } else if (instr.type == InstructionType::SUBTRACT && instr.args.size() == 2) {
+        const std::string& varName = instr.args[0];
+        try {
+            int value = std::stoi(instr.args[1]);
+            memory[varName] -= value;
+            std::cout << "[INFO] SUBTRACT: " << varName << " -= " << value << " (New: " << memory[varName] << ")\n";
+            printLog("SUBTRACT " + varName + " - " + std::to_string(value));
+        } catch (...) {
+            std::cerr << "[ERROR] Invalid SUBTRACT value: " << instr.args[1] << std::endl;
+            errorFlag = true;
+        }
+    }
 
     instructionPointer++;
     if (instructionPointer >= instructions.size()) {
