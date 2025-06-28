@@ -1,4 +1,3 @@
-// Includes remain unchanged
 #include "Scheduler.h"
 #include "ProcessManager.h"
 #include <iostream>
@@ -14,9 +13,11 @@
 #include <ctime>
 
 extern int globalProcessId;
+
 extern Config config;
 extern std::atomic<int> activeCores;
 std::atomic<int> cpuTicks(0);
+
 
 class ActiveCoreGuard {
     std::atomic<int>& counter;
@@ -39,47 +40,38 @@ Scheduler::Scheduler(const Config& cfg)
 }
 
 Scheduler::~Scheduler() {
-    // std::cout << "[Scheduler] Destructor called. Shutting down...\n";
+    std::cout << "[Scheduler] Destructor called. Shutting down...\n";
     finish();
     stopDummyGeneration();
     joinAll();
-    // std::cout << "[Scheduler] Destructor finished.\n";
+    std::cout << "[Scheduler] Destructor finished.\n";
 }
 
 void Scheduler::start() {
-    // std::cout << "[Scheduler] Starting worker threads on " << numCores << " cores.\n";
+    std::cout << "[Scheduler] Starting worker threads on " << numCores << " cores.\n";
     try {
         for (int i = 0; i < numCores; ++i) {
             cores.emplace_back(&Scheduler::worker, this, i);
         }
-
-        tickThread = std::thread([this]() {
-            while (!finished.load()) {
-                ++cpuTicks;
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
-            });
-
+    }
+    catch (const std::exception& e) {
+        std::cerr << "[Scheduler] Failed to start worker threads: " << e.what() << '\n';
     }
     catch (...) {
-        // Suppressed error messages
+        std::cerr << "[Scheduler] Unknown error starting worker threads.\n";
     }
 }
 
 void Scheduler::joinAll() {
     for (auto& thread : cores) {
         if (thread.joinable()) {
-            // std::cout << "[Scheduler] Joining worker thread.\n";
+            std::cout << "[Scheduler] Joining worker thread.\n";
             thread.join();
         }
     }
     if (dummyThread.joinable()) {
-        // std::cout << "[Scheduler] Joining dummy generation thread.\n";
+        std::cout << "[Scheduler] Joining dummy generation thread.\n";
         dummyThread.join();
-    }
-    if (tickThread.joinable()) {
-        // std::cout << "[Scheduler] Joining tick thread.\n";
-        tickThread.join();
     }
 }
 
@@ -87,18 +79,20 @@ void Scheduler::addProcess(const std::shared_ptr<Screen>& process) {
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         screenQueue.push(process);
+        
     }
     cv.notify_one();
 }
 
 void Scheduler::finish() {
-    // std::cout << "[Scheduler] Signaling finish to all threads.\n";
+    std::cout << "[Scheduler] Signaling finish to all threads.\n";
     finished.store(true);
     cv.notify_all();
 }
 
 void Scheduler::worker(int coreId) {
-    // std::cout << "[Scheduler] Worker thread started on core " << coreId << ".\n";
+    std::cout << "[Scheduler] Worker thread started on core " << coreId << ".\n";
+
     while (true) {
         std::shared_ptr<Screen> screen;
         {
@@ -106,7 +100,7 @@ void Scheduler::worker(int coreId) {
             cv.wait(lock, [this] { return finished.load() || !screenQueue.empty(); });
 
             if (finished.load() && screenQueue.empty()) {
-                // std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";
+                std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";
                 return;
             }
 
@@ -115,16 +109,20 @@ void Scheduler::worker(int coreId) {
                 screenQueue.pop();
                 screen->setCoreAssigned(coreId);
                 screen->setScheduled(true);
+
             }
         }
 
         if (screen) {
             ActiveCoreGuard guard(activeCores);
             screen->setStatus(ProcessStatus::RUNNING);
-            if (schedulerType == InternalSchedulerType::FCFS)
+
+            if (schedulerType == InternalSchedulerType::FCFS) {
                 executeProcessFCFS(screen, coreId);
-            else
+            }
+            else {
                 executeProcessRR(screen, coreId);
+            }
         }
     }
 }
@@ -132,6 +130,8 @@ void Scheduler::worker(int coreId) {
 void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int coreId) {
     try {
         screen->setCoreAssigned(coreId);
+        std::ofstream logFile(screen->getName() + ".txt");
+
         while (!screen->isFinished() && !finished.load()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
@@ -139,7 +139,10 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
                 break;
             }
 
-            // std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction...\n";
+            std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction "
+                << screen->getCurrentInstruction() + 1 << " / "
+                << screen->getTotalInstructions() << " on process '"
+                << screen->getName() << "'\n";
 
             if (screen->getStatus() == ProcessStatus::SLEEPING) {
                 if (cpuTicks.load() < screen->getSleepUntilTick()) {
@@ -159,7 +162,12 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
             }
 
             try {
-                screen->executeNextInstruction();
+                auto timestamp = currentTimestamp();
+                logFile << timestamp << " Core:" << coreId
+                    << " \"Hello world from " << screen->getName() << "!\"\n";
+                logFile.flush();
+
+                screen->advanceInstruction();
             }
             catch (const std::exception& e) {
                 handleProcessError(screen, e.what());
@@ -170,17 +178,20 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
         if (!screen->hasError()) {
             screen->setStatus(ProcessStatus::FINISHED);
             screen->printLog("FCFS: Process completed on core " + std::to_string(coreId));
-            // std::cout << "[Scheduler][FCFS] Process '" << screen->getName() << "' finished.\n";
+            std::cout << "[Scheduler][FCFS] Process '" << screen->getName()
+                << "' finished on core " << coreId << ".\n";
         }
     }
     catch (const std::exception& e) {
-        // std::cerr << "[Scheduler][FCFS][Exception] " << e.what() << "\n";
+        std::cerr << "[Scheduler][FCFS][Exception] Process '" << screen->getName()
+            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
     }
 }
 
 void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int coreId) {
     try {
         screen->setCoreAssigned(coreId);
+        std::ofstream logFile(screen->getName() + ".txt", std::ios::app);
         int executed = 0;
 
         while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
@@ -189,29 +200,24 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 break;
             }
 
-            if (screen->getStatus() == ProcessStatus::SLEEPING) {
-                if (cpuTicks.load() < screen->getSleepUntilTick()) {
-                    screen->setStatus(ProcessStatus::READY); // Optional: set status to READY
-                    addProcess(screen); // Requeue for later
-                    return; // yield CPU time
-                }
-                else {
-                    screen->setStatus(ProcessStatus::READY); // Wake up
-                }
-            }
-
             for (int i = 0; i < config.delayPerExec; ++i) {
                 ++cpuTicks;
             }
 
             try {
+                auto timestamp = currentTimestamp();
+                logFile << timestamp << " Core:" << coreId
+                    << " \"Executing instruction " << screen->getCurrentInstruction()
+                    << " from process " << screen->getName() << "\"\n";
+                logFile.flush();
 
-                screen->executeNextInstruction();
+                screen->advanceInstruction();
 
                 if (screen->hasError()) {
                     handleProcessError(screen, "Error encountered during instruction execution.");
                     break;
                 }
+
                 ++executed;
             }
             catch (const std::exception& e) {
@@ -223,20 +229,24 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         if (!screen->hasError()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
+
             }
             else {
                 screen->setStatus(ProcessStatus::READY);
                 addProcess(screen);
+
             }
         }
     }
-    catch (...) {}
+    catch (const std::exception& e) {
+
+    }
 }
 
 void Scheduler::startDummyGeneration() {
     bool expected = false;
     if (!generatingDummies.compare_exchange_strong(expected, true)) {
-        // std::cout << "[Scheduler] Dummy generation already running.\n";
+        std::cout << "[Scheduler] Dummy generation already running.\n";
         return;
     }
 
@@ -252,33 +262,32 @@ void Scheduler::stopDummyGeneration() {
     if (dummyThread.joinable()) {
         dummyThread.join();
     }
-    // std::cout << "[Scheduler] Dummy generation stopped.\n";
+    std::cout << "[Scheduler] Dummy generation stopped.\n";
 }
 
 void Scheduler::dummyProcessLoop() {
-    // std::cout << "[Scheduler] Dummy process generation started.\n";
+    std::cout << "[Scheduler] Dummy process generation started.\n";
+
     try {
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<> dist(config.minIns, config.maxIns);
 
         dummyCounter = 0;
-        int lastGenTick = cpuTicks.load();
+        auto lastGenTime = std::chrono::steady_clock::now();
 
         while (generatingDummies.load()) {
-            int currentTick = cpuTicks.load();
-            int tickElapsed = currentTick - lastGenTick;
+            auto now = std::chrono::steady_clock::now();
+            auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGenTime).count();
 
-            //if (dummyCounter >= 50) {
-                // std::cout << "[Scheduler] Dummy process limit reached.\n";
-              //  break;
-            //}
+            if (dummyCounter >= 50) {
+                std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";
+                break;
+            }
 
-            // std::cout << "[DEBUG] Tick elapsed: " << tickElapsed << "\n";
-
-            if (tickElapsed >= config.batchFreq) {
+            if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);
-                // std::cout << "[Scheduler] Generating dummy process: " << name << "\n";
+                std::cout << "[Scheduler] Generating dummy process: " << name << " (ID: " << globalProcessId << ")\n";
 
                 auto screen = std::make_shared<Screen>();
                 screen->setName(name);
@@ -288,22 +297,24 @@ void Scheduler::dummyProcessLoop() {
                 screen->truncateInstructions(instructionCount);
                 screen->setProcessId(globalProcessId++);
                 screen->setStatus(ProcessStatus::READY);
-
-                ProcessManager::registerProcess(screen);
+				ProcessManager::registerProcess(screen);
                 addProcess(screen);
 
-                lastGenTick = currentTick;
+                lastGenTime = now;
             }
             else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
     }
+    catch (const std::exception& e) {
+        std::cerr << "[Scheduler] Exception in dummyProcessLoop: " << e.what() << "\n";
+    }
     catch (...) {
-        // std::cerr << "[Scheduler] Exception in dummyProcessLoop.\n";
+        std::cerr << "[Scheduler] Unknown exception in dummyProcessLoop.\n";
     }
 
-    // std::cout << "[Scheduler] Dummy process generation ended.\n";
+    std::cout << "[Scheduler] Dummy process generation ended.\n";
 }
 
 std::string Scheduler::currentTimestamp() {
@@ -323,5 +334,7 @@ void Scheduler::handleProcessError(const std::shared_ptr<Screen>& screen, const 
     screen->setError(true);
     screen->setStatus(ProcessStatus::FINISHED);
     screen->printLog("Error during instruction execution: " + message);
-    // std::cerr << "[Scheduler][ProcessError] " << message << "\n";
+    std::cerr << "[Scheduler][ProcessError] Process '" << screen->getName()
+        << "' encountered an error: " << message << "\n";
 }
+
