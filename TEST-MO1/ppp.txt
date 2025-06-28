@@ -1,0 +1,7 @@
+(06/28/2025 09:03:05 PM) Core:0 "Hello world from ppp!"
+(06/28/2025 09:03:05 PM) Core:0 "Hello world from ppp!"
+(06/28/2025 09:03:05 PM) Core:0 "Hello world from ppp!"
+(06/28/2025 09:03:05 PM) Core:0 "Hello world from ppp!"
+(06/28/2025 09:03:05 PM) Core:0 "Hello world from ppp!"
+(06/28/2025 09:03:05 PM) Core:0 "Hello world from ppp!"
+(06/28/2025 09:03:05 PM) Core:0 "Hello world from ppp!"

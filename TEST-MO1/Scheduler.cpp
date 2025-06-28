@@ -139,22 +139,22 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
                 break;
             }
 
-            std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction "
+          /*  std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction "
                 << screen->getCurrentInstruction() + 1 << " / "
                 << screen->getTotalInstructions() << " on process '"
-                << screen->getName() << "'\n";
+                << screen->getName() << "'\n";*/
 
             for (int i = 0; i < config.delayPerExec; ++i) {
                 ++cpuTicks;
             }
 
             try {
-                auto timestamp = currentTimestamp();
+                /*auto timestamp = currentTimestamp();
                 logFile << timestamp << " Core:" << coreId
                     << " \"Hello world from " << screen->getName() << "!\"\n";
-                logFile.flush();
+                logFile.flush();*/
 
-                screen->advanceInstruction();
+                screen->executeNextInstruction();
             }
             catch (const std::exception& e) {
                 handleProcessError(screen, e.what());
@@ -193,12 +193,12 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
 
             try {
                 auto timestamp = currentTimestamp();
-                logFile << timestamp << " Core:" << coreId
+                /*logFile << timestamp << " Core:" << coreId
                     << " \"Executing instruction " << screen->getCurrentInstruction()
                     << " from process " << screen->getName() << "\"\n";
-                logFile.flush();
+                logFile.flush();*/
 
-                screen->advanceInstruction();
+                screen->executeNextInstruction();
 
                 if (screen->hasError()) {
                     handleProcessError(screen, "Error encountered during instruction execution.");
