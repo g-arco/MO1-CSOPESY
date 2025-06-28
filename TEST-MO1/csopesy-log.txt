@@ -1,11 +1,29 @@
-----------------------------------------
 CPU Stats:
-Cores Used:      0 / 4
-Cores Available: 4
-CPU Utilization: 0.00%
+Cores Used:      16 / 16
+Cores Available: 0
+CPU Utilization: 100.00%
+
 ----------------------------------------
 
 Running Processes:
+- process13    (2025-06-28 22:11:36) Core: 1     12 / 5000
+- process19    (2025-06-28 22:11:36) Core: 5     13 / 5000
+- process2     (2025-06-28 22:11:35) Core: 8     14 / 5000
+- process20    (2025-06-28 22:11:36) Core: 15    16 / 5000
+- process24    (2025-06-28 22:11:36) Core: 10    12 / 5000
+- process26    (2025-06-28 22:11:36) Core: 3     12 / 5000
+- process27    (2025-06-28 22:11:36) Core: 9     13 / 5000
+- process3     (2025-06-28 22:11:35) Core: 12    28 / 5000
+- process35    (2025-06-28 22:11:37) Core: 14    15 / 5000
+- process4     (2025-06-28 22:11:35) Core: 7     16 / 5000
+- process42    (2025-06-28 22:11:37) Core: 2     8 / 5000
+- process45    (2025-06-28 22:11:37) Core: 4     13 / 5000
+- process46    (2025-06-28 22:11:37) Core: 11    10 / 5000
+- process48    (2025-06-28 22:11:37) Core: 13    15 / 5000
+- process49    (2025-06-28 22:11:37) Core: 0     7 / 5000
+- process6     (2025-06-28 22:11:36) Core: 6     20 / 5000
 
 Finished Processes:
+No finished processes.
 ----------------------------------------
+
