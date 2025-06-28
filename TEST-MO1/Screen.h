@@ -7,11 +7,20 @@
 #include <mutex>
 #include <unordered_map>
 
+struct ForExecutionContext {
+    std::vector<std::string> args;
+    size_t instructionIndex = 0;
+    int repeatCount = 1;
+    int executedIterations = 0;
+    int currentDepth = 0;
+};
+
 // Enum for process status
 enum class ProcessStatus {
     READY,
     RUNNING,
-    FINISHED
+    FINISHED,
+    SLEEPING
 };
 
 
@@ -41,6 +50,7 @@ public:
     void setScheduled(bool value);
     bool isScheduled() const;
 
+    ForExecutionContext forContext;
 
     void generateDummyInstructions();
     void executeNextInstruction();
@@ -90,6 +100,9 @@ private:
 
     bool errorFlag = false;
     int processId = 0;
+
+    int sleepUntilTick = -1;  // Tick to wake up, -1 means not sleeping
+    bool isSleeping() const { return sleepUntilTick != -1; }
 };
 
 #endif // SCREEN_H
