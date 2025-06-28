@@ -6,6 +6,7 @@
 #include <fstream>
 #include <mutex>
 #include <unordered_map>
+#include "Config.h"
 
 // Enum for process status
 enum class ProcessStatus {
@@ -42,7 +43,7 @@ public:
     bool isScheduled() const;
 
 
-    void generateDummyInstructions();
+    void generateDummyInstructions(const Config& config);
     void executeNextInstruction();
     void advanceInstruction();
     void truncateInstructions(int n);

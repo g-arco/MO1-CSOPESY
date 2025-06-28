@@ -234,16 +234,57 @@ void Screen::showScreen() {
     CLIUtils::printHeader();
 }
 
-void Screen::generateDummyInstructions() {
+void Screen::generateDummyInstructions(const Config& config) {
     std::lock_guard<std::mutex> lock(mtx);
-    instructions = {
-        { InstructionType::PRINT, {"Hello world from " + name} },
-        { InstructionType::SLEEP, {"1"} },
-        { InstructionType::PRINT, {"Dummy process completed."} }
-    };
+
+    std::vector<std::string> variables = { "x", "y", "z", "a", "b", "c" };
+    std::vector<Instruction> instrs;
+    int count = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
+
+    auto generateSimpleInstruction = [&](InstructionType type) -> Instruction {
+        Instruction instr;
+        instr.type = type;
+
+        switch (type) {
+        case InstructionType::DECLARE: {
+            std::string var = variables[rand() % variables.size()];
+            int value = rand() % 20 + 1;
+            instr.args = { var, std::to_string(value) };
+            break;
+        }
+        case InstructionType::ADD:
+        case InstructionType::SUBTRACT: {
+            std::string dest = variables[rand() % variables.size()];
+            std::string op1 = variables[rand() % variables.size()];
+            std::string op2 = variables[rand() % variables.size()];
+            instr.args = { dest, op1, op2 };
+            break;
+        }
+        case InstructionType::PRINT: {
+            instr.args = { "Hello from " + name };
+            break;
+        }
+        case InstructionType::SLEEP: {
+            instr.args = { std::to_string(rand() % 3 + 1) };
+            break;
+        }
+        default: break;
+        }
+
+        return instr;
+        };
+
+    for (int i = 0; i < count; ++i) {
+        int choice = rand() % 5;  // 0–4 only
+        InstructionType type = static_cast<InstructionType>(choice);
+        instrs.push_back(generateSimpleInstruction(type));
+    }
+
+    instructions = instrs;
     instructionPointer = 0;
     status = ProcessStatus::READY;
 }
+
 
 void Screen::printLog(const std::string& msg) {
     std::lock_guard<std::mutex> lock(mtx);

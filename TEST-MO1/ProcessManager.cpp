@@ -23,7 +23,6 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
     std::vector<std::string> variables = { "x", "y", "z", "a", "b", "c" };
     std::unordered_set<std::string> declaredVariables;
 
-    // Helper to generate a random simple instruction
     auto generateSimpleInstruction = [&](InstructionType type) -> Instruction {
         Instruction instr;
         instr.type = type;
@@ -42,7 +41,6 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
             std::string op1 = variables[rand() % variables.size()];
             std::string op2 = variables[rand() % variables.size()];
             instr.args = { dest, op1, op2 };
-            // dest is written; assume declaration on execution
             declaredVariables.insert(dest);
             break;
         }
@@ -61,94 +59,15 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
         return instr;
         };
 
-    // Recursive FOR instruction generator
-    std::function<Instruction(int)> generateForInstruction;
-    generateForInstruction = [&](int depth) -> Instruction {
-        Instruction forInstr;
-        forInstr.type = InstructionType::FOR;
-
-        int repeatCount = rand() % 5 + 1;
-        int subCount = rand() % 3 + 1;
-        std::vector<std::string> args;
-
-        for (int i = 0; i < subCount; ++i) {
-            int choice = rand() % 5;
-
-            if (choice == 5 && depth < 3) {
-                Instruction nested = generateForInstruction(depth + 1);
-                args.push_back("FOR");
-                args.insert(args.end(), nested.args.begin(), nested.args.end());
-            }
-            else {
-                InstructionType innerType = static_cast<InstructionType>(choice);
-                Instruction inner = generateSimpleInstruction(innerType);
-
-                args.push_back(std::to_string(static_cast<int>(inner.type)));
-                args.insert(args.end(), inner.args.begin(), inner.args.end());
-                args.push_back(";"); // delimiter between instructions
-            }
-        }
-
-        args.push_back("REP");
-        args.push_back(std::to_string(repeatCount));
-        forInstr.args = args;
-
-        return forInstr;
-        };
-
-    // Generate main instruction list
     for (int i = 0; i < numInstructions; ++i) {
-        Instruction instr;
-        int choice = rand() % 6;
-
-        switch (choice) {
-        case 0: { // DECLARE
-            std::string var = variables[rand() % variables.size()];
-            int value = rand() % 20 + 1;
-            instr.type = InstructionType::DECLARE;
-            instr.args = { var, std::to_string(value) };
-            declaredVariables.insert(var);
-            break;
-        }
-        case 1: { // ADD
-            std::string dest = variables[rand() % variables.size()];
-            std::string op1 = variables[rand() % variables.size()];
-            std::string op2 = variables[rand() % variables.size()];
-            instr.type = InstructionType::ADD;
-            instr.args = { dest, op1, op2 };
-            declaredVariables.insert(dest);
-            break;
-        }
-        case 2: { // SUBTRACT
-            std::string dest = variables[rand() % variables.size()];
-            std::string op1 = variables[rand() % variables.size()];
-            std::string op2 = variables[rand() % variables.size()];
-            instr.type = InstructionType::SUBTRACT;
-            instr.args = { dest, op1, op2 };
-            declaredVariables.insert(dest);
-            break;
-        }
-        case 3: // PRINT
-            instr.type = InstructionType::PRINT;
-            instr.args = { "Hello from " + name };
-            break;
-        case 4: // SLEEP
-            instr.type = InstructionType::SLEEP;
-            instr.args = { std::to_string(rand() % 3 + 1) };
-            break;
-        case 5: // FOR
-            instr = generateForInstruction(1);
-            break;
-        }
-
-        instructions.push_back(instr);
+        int choice = rand() % 5;  // only 0 to 4
+        InstructionType type = static_cast<InstructionType>(choice);
+        instructions.push_back(generateSimpleInstruction(type));
     }
 
     auto screen = std::make_shared<Screen>(name, instructions, globalProcessId++);
     registerProcess(screen);
 }
-
-
 
 
 void ProcessManager::resumeScreen(const std::string& name) {

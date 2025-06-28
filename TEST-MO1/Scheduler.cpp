@@ -278,7 +278,7 @@ void Scheduler::dummyProcessLoop() {
 
                 auto screen = std::make_shared<Screen>();
                 screen->setName(name);
-                screen->generateDummyInstructions();
+                screen->generateDummyInstructions(config);
 
                 int instructionCount = dist(gen);
                 screen->truncateInstructions(instructionCount);
