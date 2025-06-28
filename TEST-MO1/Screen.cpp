@@ -7,11 +7,15 @@
 #include <sstream>
 #include <thread>
 #include <limits>
+#include <atomic>
 #include "CLIUtils.h"
 #include <unordered_map>
 #include "Scheduler.h"
 
 bool scheduled = false;
+
+extern std::atomic<int> cpuTicks;
+
 
 // Constructor
 Screen::Screen()
@@ -99,15 +103,16 @@ void Screen::executeNextInstruction() {
             std::cout << "[INFO] Sleeping for " << ticks << " CPU tick(s)..." << std::endl;
 
             status = ProcessStatus::SLEEPING;
-            // You should set sleepUntilTick = cpuTicks + ticks in scheduler context
-            return;  // relinquish CPU; scheduler requeues later
+            sleepUntilTick = cpuTicks.load() + ticks;
+
+            return;  
         }
         catch (...) {
             std::cerr << "[ERROR] Invalid sleep tick count: " << instr.args[0] << "\n";
             errorFlag = true;
         }
     }
-    else if (instr.type == InstructionType::DECLARE && instr.args.size() == 2) {
+    else if (instr.type == InstructionType::DECLARE && instr.args.size() == 3) {
         const std::string& varName = instr.args[0];
         try {
             int value = std::stoi(instr.args[1]);
@@ -161,9 +166,6 @@ void Screen::executeNextInstruction() {
         }
     }
     else if (instr.type == InstructionType::FOR) {
-        // FOR instruction format:
-        // args: ["FOR", <instrType0>, <arg0>..., ";", ..., "REP", "<repeatCount>"]
-        // We need to parse and execute instructions inside FOR repeatCount times.
 
         if (forContext.currentDepth == 0) {
             // Initialize FOR context
@@ -217,9 +219,7 @@ void Screen::executeNextInstruction() {
                     // Update instructionIndex past this instruction
                     forContext.instructionIndex = idx + 1;
 
-                    // Execute inner instruction immediately (recursive call might be overkill)
-                    // We'll temporarily set instructions and instructionPointer to innerInstr to reuse logic
-                    // Save outer state
+                    
                     auto savedInstructions = instructions;
                     size_t savedIP = instructionPointer;
 
@@ -265,11 +265,6 @@ void Screen::assignCoreIfUnassigned(int totalCores) {
     }
 }
 
-void Screen::advanceInstruction() {
-    if (instructionPointer < instructions.size()) {
-        ++instructionPointer;
-    }
-}
 
 void Screen::showScreen() {
     while (true) {
@@ -500,4 +495,19 @@ std::string Screen::getTimestamp() const {
 
 int Screen::getProcessId() const {
     return processId;
+}
+
+void Screen::setProcessId(int id) {
+    std::lock_guard<std::mutex> lock(mtx);
+    processId = id;
+}
+
+void Screen::setSleepUntilTick(int64_t tick) {
+    std::lock_guard<std::mutex> lock(mtx);
+    sleepUntilTick = tick;
+}
+
+int64_t Screen::getSleepUntilTick() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return sleepUntilTick;
 }

@@ -15,7 +15,6 @@ struct ForExecutionContext {
     int currentDepth = 0;
 };
 
-// Enum for process status
 enum class ProcessStatus {
     READY,
     RUNNING,
@@ -23,9 +22,6 @@ enum class ProcessStatus {
     SLEEPING
 };
 
-
-
-// Enum for instruction types
 enum class InstructionType {
     PRINT,
     DECLARE,
@@ -36,7 +32,6 @@ enum class InstructionType {
     INVALID
 };
 
-// Instruction struct
 struct Instruction {
     InstructionType type = InstructionType::INVALID;
     std::vector<std::string> args;
@@ -45,7 +40,7 @@ struct Instruction {
 class Screen {
 public:
     Screen();
-    Screen(const std::string &name_, const std::vector<Instruction> &instrs, int id);
+    Screen(const std::string& name_, const std::vector<Instruction>& instrs, int id);
     void setInstructions(const std::vector<Instruction>& instrs);
     void setScheduled(bool value);
     bool isScheduled() const;
@@ -54,7 +49,6 @@ public:
 
     void generateDummyInstructions();
     void executeNextInstruction();
-    void advanceInstruction();
     void truncateInstructions(int n);
     void showScreen();
 
@@ -78,7 +72,11 @@ public:
 
     void printLog(const std::string& msg);
     int getProcessId() const;
-    void setProcessId(int id) { processId = id; }
+    void setProcessId(int id);
+
+    void setSleepUntilTick(int64_t tick);
+    int64_t getSleepUntilTick() const;
+
 private:
     void updateTimestamp();
     void assignCoreIfUnassigned(int totalCores);
@@ -101,8 +99,7 @@ private:
     bool errorFlag = false;
     int processId = 0;
 
-    int sleepUntilTick = -1;  // Tick to wake up, -1 means not sleeping
-    bool isSleeping() const { return sleepUntilTick != -1; }
+    int64_t sleepUntilTick = 0;  
 };
 
 #endif // SCREEN_H

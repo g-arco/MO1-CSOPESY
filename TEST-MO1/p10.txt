@@ -1,2 +1,0 @@
-Process: p10
-LOG: Hello world!

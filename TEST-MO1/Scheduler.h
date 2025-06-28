@@ -40,6 +40,8 @@ private:
 
     // Dummy process generation thread loop
     void dummyProcessLoop();
+    std::thread tickThread;
+
 
     // Utility helpers
     std::string currentTimestamp();
