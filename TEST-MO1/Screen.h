@@ -7,21 +7,16 @@
 #include <mutex>
 #include <unordered_map>
 
-struct ForExecutionContext {
-    std::vector<std::string> args;
-    size_t instructionIndex = 0;
-    int repeatCount = 1;
-    int executedIterations = 0;
-    int currentDepth = 0;
-};
-
+// Enum for process status
 enum class ProcessStatus {
     READY,
     RUNNING,
-    FINISHED,
-    SLEEPING
+    FINISHED
 };
 
+
+
+// Enum for instruction types
 enum class InstructionType {
     PRINT,
     DECLARE,
@@ -32,6 +27,7 @@ enum class InstructionType {
     INVALID
 };
 
+// Instruction struct
 struct Instruction {
     InstructionType type = InstructionType::INVALID;
     std::vector<std::string> args;
@@ -40,15 +36,15 @@ struct Instruction {
 class Screen {
 public:
     Screen();
-    Screen(const std::string& name_, const std::vector<Instruction>& instrs, int id);
+    Screen(const std::string &name_, const std::vector<Instruction> &instrs, int id);
     void setInstructions(const std::vector<Instruction>& instrs);
     void setScheduled(bool value);
     bool isScheduled() const;
 
-    ForExecutionContext forContext;
 
     void generateDummyInstructions();
     void executeNextInstruction();
+    void advanceInstruction();
     void truncateInstructions(int n);
     void showScreen();
 
@@ -72,11 +68,7 @@ public:
 
     void printLog(const std::string& msg);
     int getProcessId() const;
-    void setProcessId(int id);
-
-    void setSleepUntilTick(int64_t tick);
-    int64_t getSleepUntilTick() const;
-
+    void setProcessId(int id) { processId = id; }
 private:
     void updateTimestamp();
     void assignCoreIfUnassigned(int totalCores);
@@ -98,8 +90,6 @@ private:
 
     bool errorFlag = false;
     int processId = 0;
-
-    int64_t sleepUntilTick = 0;  
 };
 
 #endif // SCREEN_H
