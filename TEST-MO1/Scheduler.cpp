@@ -143,11 +143,13 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
 
             if (screen->getStatus() == ProcessStatus::SLEEPING) {
                 if (cpuTicks.load() < screen->getSleepUntilTick()) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                    continue; // skip this iteration
+                    // Requeue the sleeping process and return to allow other processes to run
+                    screen->setStatus(ProcessStatus::READY);
+                    addProcess(screen);
+                    return;  // exit this worker function to pick another process
                 }
                 else {
-                    screen->setStatus(ProcessStatus::READY); // Wake up
+                    screen->setStatus(ProcessStatus::READY); // wake up
                 }
             }
 
