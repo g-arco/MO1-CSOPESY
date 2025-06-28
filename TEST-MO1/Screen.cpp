@@ -83,12 +83,12 @@ void Screen::executeNextInstruction() {
             logFile << logEntry << "\n";
         }
 
-        std::cout << logEntry << std::endl;
+        /*std::cout << logEntry << std::endl;*/
     }
     else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
         try {
             int duration = std::stoi(instr.args[0]);
-            std::cout << "[INFO] Sleeping for " << duration << " second(s)..." << std::endl;
+            /*std::cout << "[INFO] Sleeping for " << duration << " second(s)..." << std::endl;*/
             std::this_thread::sleep_for(std::chrono::seconds(duration));
         }
         catch (...) {
@@ -101,7 +101,7 @@ void Screen::executeNextInstruction() {
         try {
             int value = std::stoi(instr.args[1]);
             memory[varName] = value;
-            std::cout << "[INFO] DECLARE: " << varName << " = " << value << std::endl;
+            /*std::cout << "[INFO] DECLARE: " << varName << " = " << value << std::endl;*/
             printLog("DECLARE " + varName + " = " + std::to_string(value));
         }
         catch (...) {
@@ -119,8 +119,8 @@ void Screen::executeNextInstruction() {
 
             int result = op1 + op2;
 
-            std::cout << "[INFO] ADD: " << var1 << " = " << op1 << " + " << op2
-                << " (New: " << memory[var1] << ")\n";
+            /*std::cout << "[INFO] ADD: " << var1 << " = " << op1 << " + " << op2
+                << " (New: " << memory[var1] << ")\n";*/
             printLog("ADD " + var1 + " = " + std::to_string(op1) + " + " + std::to_string(op2));
         }
         catch (const std::exception& e) {
@@ -138,8 +138,8 @@ void Screen::executeNextInstruction() {
 
             int result = op1 - op2;
 
-            std::cout << "[INFO] SUBTRACT: " << var1 << " = " << op1 << " - " << op2
-                << " (New: " << memory[var1] << ")\n";
+            /*std::cout << "[INFO] SUBTRACT: " << var1 << " = " << op1 << " - " << op2
+                << " (New: " << memory[var1] << ")\n";*/
             printLog("SUBTRACT " + var1 + " = " + std::to_string(op1) + " - " + std::to_string(op2));
         }
         catch (const std::exception& e) {

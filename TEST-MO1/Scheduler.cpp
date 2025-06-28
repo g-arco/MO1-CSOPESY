@@ -40,37 +40,37 @@ Scheduler::Scheduler(const Config& cfg)
 }
 
 Scheduler::~Scheduler() {
-    std::cout << "[Scheduler] Destructor called. Shutting down...\n";
+    /*std::cout << "[Scheduler] Destructor called. Shutting down...\n";*/
     finish();
     stopDummyGeneration();
     joinAll();
-    std::cout << "[Scheduler] Destructor finished.\n";
+   /* std::cout << "[Scheduler] Destructor finished.\n";*/
 }
 
 void Scheduler::start() {
-    std::cout << "[Scheduler] Starting worker threads on " << numCores << " cores.\n";
+    /*std::cout << "[Scheduler] Starting worker threads on " << numCores << " cores.\n";*/
     try {
         for (int i = 0; i < numCores; ++i) {
             cores.emplace_back(&Scheduler::worker, this, i);
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "[Scheduler] Failed to start worker threads: " << e.what() << '\n';
+        /*std::cerr << "[Scheduler] Failed to start worker threads: " << e.what() << '\n';*/
     }
     catch (...) {
-        std::cerr << "[Scheduler] Unknown error starting worker threads.\n";
+       /* std::cerr << "[Scheduler] Unknown error starting worker threads.\n";*/
     }
 }
 
 void Scheduler::joinAll() {
     for (auto& thread : cores) {
         if (thread.joinable()) {
-            std::cout << "[Scheduler] Joining worker thread.\n";
+            /*std::cout << "[Scheduler] Joining worker thread.\n";*/
             thread.join();
         }
     }
     if (dummyThread.joinable()) {
-        std::cout << "[Scheduler] Joining dummy generation thread.\n";
+        /*std::cout << "[Scheduler] Joining dummy generation thread.\n";*/
         dummyThread.join();
     }
 }
@@ -85,13 +85,13 @@ void Scheduler::addProcess(const std::shared_ptr<Screen>& process) {
 }
 
 void Scheduler::finish() {
-    std::cout << "[Scheduler] Signaling finish to all threads.\n";
+    /*std::cout << "[Scheduler] Signaling finish to all threads.\n";*/
     finished.store(true);
     cv.notify_all();
 }
 
 void Scheduler::worker(int coreId) {
-    std::cout << "[Scheduler] Worker thread started on core " << coreId << ".\n";
+    /*std::cout << "[Scheduler] Worker thread started on core " << coreId << ".\n";*/
 
     while (true) {
         std::shared_ptr<Screen> screen;
@@ -100,7 +100,7 @@ void Scheduler::worker(int coreId) {
             cv.wait(lock, [this] { return finished.load() || !screenQueue.empty(); });
 
             if (finished.load() && screenQueue.empty()) {
-                std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";
+               /* std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";*/
                 return;
             }
 
@@ -233,7 +233,7 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
 void Scheduler::startDummyGeneration() {
     bool expected = false;
     if (!generatingDummies.compare_exchange_strong(expected, true)) {
-        std::cout << "[Scheduler] Dummy generation already running.\n";
+        /*std::cout << "[Scheduler] Dummy generation already running.\n";*/
         return;
     }
 
@@ -249,11 +249,11 @@ void Scheduler::stopDummyGeneration() {
     if (dummyThread.joinable()) {
         dummyThread.join();
     }
-    std::cout << "[Scheduler] Dummy generation stopped.\n";
+    /*std::cout << "[Scheduler] Dummy generation stopped.\n";*/
 }
 
 void Scheduler::dummyProcessLoop() {
-    std::cout << "[Scheduler] Dummy process generation started.\n";
+    /*std::cout << "[Scheduler] Dummy process generation started.\n";*/
 
     try {
         std::random_device rd;
@@ -268,13 +268,13 @@ void Scheduler::dummyProcessLoop() {
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGenTime).count();
 
             if (dummyCounter >= 50) {
-                std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";
+                /*std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";*/
                 break;
             }
 
             if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);
-                std::cout << "[Scheduler] Generating dummy process: " << name << " (ID: " << globalProcessId << ")\n";
+                /*std::cout << "[Scheduler] Generating dummy process: " << name << " (ID: " << globalProcessId << ")\n";*/
 
                 auto screen = std::make_shared<Screen>();
                 screen->setName(name);
@@ -295,13 +295,13 @@ void Scheduler::dummyProcessLoop() {
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "[Scheduler] Exception in dummyProcessLoop: " << e.what() << "\n";
+        /*std::cerr << "[Scheduler] Exception in dummyProcessLoop: " << e.what() << "\n";*/
     }
     catch (...) {
-        std::cerr << "[Scheduler] Unknown exception in dummyProcessLoop.\n";
+       /* std::cerr << "[Scheduler] Unknown exception in dummyProcessLoop.\n";*/
     }
 
-    std::cout << "[Scheduler] Dummy process generation ended.\n";
+    /*std::cout << "[Scheduler] Dummy process generation ended.\n";*/
 }
 
 std::string Scheduler::currentTimestamp() {
