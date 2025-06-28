@@ -6,6 +6,7 @@
 #include <fstream>
 #include <mutex>
 #include <unordered_map>
+#include "Config.h"
 
 // Enum for process status
 enum class ProcessStatus {
@@ -37,8 +38,12 @@ class Screen {
 public:
     Screen();
     Screen(const std::string &name_, const std::vector<Instruction> &instrs, int id);
+    void setInstructions(const std::vector<Instruction>& instrs);
+    void setScheduled(bool value);
+    bool isScheduled() const;
 
-    void generateDummyInstructions();
+
+    void generateDummyInstructions(const Config& config);
     void executeNextInstruction();
     void advanceInstruction();
     void truncateInstructions(int n);

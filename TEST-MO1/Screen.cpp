@@ -10,10 +10,12 @@
 #include "CLIUtils.h"
 #include <unordered_map>
 
+bool scheduled = false;
+
 // Constructor
 Screen::Screen()
     : name("default"), instructionPointer(0),
-      status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false), processId(0)
+    status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false), processId(0)
 {
     updateTimestamp();
     instructions.clear();
@@ -21,7 +23,7 @@ Screen::Screen()
 
 Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs, int id)
     : name(name_), instructions(instrs), instructionPointer(0),
-      status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false), processId(id)
+    status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false), processId(id)
 {
     updateTimestamp();
     logFile.open(name + ".log", std::ios::app);
@@ -39,8 +41,8 @@ bool Screen::isNumber(const std::string& s) const {
 
 int Screen::resolveValue(const std::string& token) {
     if (isNumber(token)) return std::stoi(token);
-    if (memory.count(token)) return memory[token];
-    throw std::runtime_error("Unknown variable: " + token);
+    if (!memory.count(token)) memory[token] = 0;
+    return memory[token];
 }
 
 void Screen::executeNextInstruction() {
@@ -64,11 +66,11 @@ void Screen::executeNextInstruction() {
         auto now = std::chrono::system_clock::now();
         std::time_t tnow = std::chrono::system_clock::to_time_t(now);
         std::tm localTime{};
-    #ifdef _WIN32
+#ifdef _WIN32
         localtime_s(&localTime, &tnow);
-    #else
+#else
         localtime_r(&tnow, &localTime);
-    #endif
+#endif
         char timeBuf[40];
         std::strftime(timeBuf, sizeof(timeBuf), "(%m/%d/%Y %I:%M:%S%p)", &localTime);
 
@@ -81,47 +83,67 @@ void Screen::executeNextInstruction() {
             logFile << logEntry << "\n";
         }
 
-        std::cout << logEntry << std::endl;
-    } else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
+        /*std::cout << logEntry << std::endl;*/
+    }
+    else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
         try {
             int duration = std::stoi(instr.args[0]);
-            std::cout << "[INFO] Sleeping for " << duration << " second(s)..." << std::endl;
+            /*std::cout << "[INFO] Sleeping for " << duration << " second(s)..." << std::endl;*/
             std::this_thread::sleep_for(std::chrono::seconds(duration));
-        } catch (...) {
+        }
+        catch (...) {
             std::cerr << "[ERROR] Invalid sleep duration: " << instr.args[0] << "\n";
             errorFlag = true;
         }
-    } else if (instr.type == InstructionType::DECLARE && instr.args.size() == 2) {
+    }
+    else if (instr.type == InstructionType::DECLARE && instr.args.size() == 2) {
         const std::string& varName = instr.args[0];
         try {
             int value = std::stoi(instr.args[1]);
             memory[varName] = value;
-            std::cout << "[INFO] DECLARE: " << varName << " = " << value << std::endl;
+            /*std::cout << "[INFO] DECLARE: " << varName << " = " << value << std::endl;*/
             printLog("DECLARE " + varName + " = " + std::to_string(value));
-        } catch (...) {
+        }
+        catch (...) {
             std::cerr << "[ERROR] Invalid DECLARE value: " << instr.args[1] << std::endl;
             errorFlag = true;
         }
-    } else if (instr.type == InstructionType::ADD && instr.args.size() == 2) {
-        const std::string& varName = instr.args[0];
+    }
+    else if (instr.type == InstructionType::ADD && instr.args.size() == 3) {
+        const std::string& var1 = instr.args[0];
         try {
-            int value = std::stoi(instr.args[1]);
-            memory[varName] += value;
-            std::cout << "[INFO] ADD: " << varName << " += " << value << " (New: " << memory[varName] << ")\n";
-            printLog("ADD " + varName + " + " + std::to_string(value));
-        } catch (...) {
-            std::cerr << "[ERROR] Invalid ADD value: " << instr.args[1] << std::endl;
+            int op1 = resolveValue(instr.args[1]);
+            int op2 = resolveValue(instr.args[2]);
+
+            if (!memory.count(var1)) memory[var1] = 0;
+
+            int result = op1 + op2;
+
+            /*std::cout << "[INFO] ADD: " << var1 << " = " << op1 << " + " << op2
+                << " (New: " << memory[var1] << ")\n";*/
+            printLog("ADD " + var1 + " = " + std::to_string(op1) + " + " + std::to_string(op2));
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[ERROR] Invalid ADD operands: " << e.what() << "\n";
             errorFlag = true;
         }
-    } else if (instr.type == InstructionType::SUBTRACT && instr.args.size() == 2) {
-        const std::string& varName = instr.args[0];
+    }
+    else if (instr.type == InstructionType::SUBTRACT && instr.args.size() == 3) {
+        const std::string& var1 = instr.args[0];
         try {
-            int value = std::stoi(instr.args[1]);
-            memory[varName] -= value;
-            std::cout << "[INFO] SUBTRACT: " << varName << " -= " << value << " (New: " << memory[varName] << ")\n";
-            printLog("SUBTRACT " + varName + " - " + std::to_string(value));
-        } catch (...) {
-            std::cerr << "[ERROR] Invalid SUBTRACT value: " << instr.args[1] << std::endl;
+            int op1 = resolveValue(instr.args[1]);
+            int op2 = resolveValue(instr.args[2]);
+
+            if (!memory.count(var1)) memory[var1] = 0;
+
+            int result = op1 - op2;
+
+            /*std::cout << "[INFO] SUBTRACT: " << var1 << " = " << op1 << " - " << op2
+                << " (New: " << memory[var1] << ")\n";*/
+            printLog("SUBTRACT " + var1 + " = " + std::to_string(op1) + " - " + std::to_string(op2));
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[ERROR] Invalid SUBTRACT operands: " << e.what() << "\n";
             errorFlag = true;
         }
     }
@@ -147,13 +169,20 @@ void Screen::advanceInstruction() {
 
 void Screen::showScreen() {
     while (true) {
+#ifdef _WIN32
+        system("cls");
+#else
+        system("clear");
+#endif
+
         std::cout << "root:\\> (process-smi / exit): ";
         std::string input;
         std::getline(std::cin, input);
 
         if (input == "exit") {
             break;
-        } else if (input == "process-smi") {
+        }
+        else if (input == "process-smi") {
             executeNextInstruction();
 
             std::cout << "\nProcess Name:   " << getName() << "\n";
@@ -176,19 +205,27 @@ void Screen::showScreen() {
                 std::cout << "[No logs available for this process]\n";
             }
 
-            if (getStatus() != ProcessStatus::FINISHED) {
+            if (!isScheduled()) {
+                std::cout << "\nCurrent Instruction Line: 0\n";
+                std::cout << "Lines of Code:            0\n";
+            }
+            else if (getStatus() != ProcessStatus::FINISHED) {
                 std::cout << "\nCurrent Instruction Line: " << getCurrentInstruction() << "\n";
                 std::cout << "Lines of Code:            " << getTotalInstructions() << "\n";
             }
 
+
+
             switch (getStatus()) {
-                case ProcessStatus::READY: std::cout << "\nReady!"; break;
-                case ProcessStatus::RUNNING: std::cout << "\nRunning!"; break;
-                case ProcessStatus::FINISHED: std::cout << "\nFinished!"; break;
+            case ProcessStatus::READY: std::cout << "\nReady!"; break;
+            case ProcessStatus::RUNNING: std::cout << "\nRunning!"; break;
+            case ProcessStatus::FINISHED: std::cout << "\nFinished!"; break;
             }
 
-            std::cout << "\n\n";
-        } else {
+            std::cout << "\n\nPress ENTER to continue...";
+            std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+        }
+        else {
             std::cout << "Unknown command. Use 'process-smi' or 'exit'.\n\n";
         }
     }
@@ -197,16 +234,57 @@ void Screen::showScreen() {
     CLIUtils::printHeader();
 }
 
-void Screen::generateDummyInstructions() {
+void Screen::generateDummyInstructions(const Config& config) {
     std::lock_guard<std::mutex> lock(mtx);
-    instructions = {
-        { InstructionType::PRINT, {"Hello from " + name} },
-        { InstructionType::SLEEP, {"3"} },
-        { InstructionType::PRINT, {"Dummy process completed."} }
-    };
+
+    std::vector<std::string> variables = { "x", "y", "z", "a", "b", "c" };
+    std::vector<Instruction> instrs;
+    int count = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
+
+    auto generateSimpleInstruction = [&](InstructionType type) -> Instruction {
+        Instruction instr;
+        instr.type = type;
+
+        switch (type) {
+        case InstructionType::DECLARE: {
+            std::string var = variables[rand() % variables.size()];
+            int value = rand() % 20 + 1;
+            instr.args = { var, std::to_string(value) };
+            break;
+        }
+        case InstructionType::ADD:
+        case InstructionType::SUBTRACT: {
+            std::string dest = variables[rand() % variables.size()];
+            std::string op1 = variables[rand() % variables.size()];
+            std::string op2 = variables[rand() % variables.size()];
+            instr.args = { dest, op1, op2 };
+            break;
+        }
+        case InstructionType::PRINT: {
+            instr.args = { "Hello from " + name };
+            break;
+        }
+        case InstructionType::SLEEP: {
+            instr.args = { std::to_string(rand() % 3 + 1) };
+            break;
+        }
+        default: break;
+        }
+
+        return instr;
+        };
+
+    for (int i = 0; i < count; ++i) {
+        int choice = rand() % 5;  // 0–4 only
+        InstructionType type = static_cast<InstructionType>(choice);
+        instrs.push_back(generateSimpleInstruction(type));
+    }
+
+    instructions = instrs;
     instructionPointer = 0;
     status = ProcessStatus::READY;
 }
+
 
 void Screen::printLog(const std::string& msg) {
     std::lock_guard<std::mutex> lock(mtx);
@@ -250,6 +328,26 @@ size_t Screen::getCurrentInstruction() const {
     std::lock_guard<std::mutex> lock(mtx);
     return instructionPointer + 1;
 }
+
+void Screen::setInstructions(const std::vector<Instruction>& instrs) {
+    std::lock_guard<std::mutex> lock(mtx);
+    instructions = instrs;
+    instructionPointer = 0;
+    scheduled = true;
+    status = ProcessStatus::READY;
+}
+
+void Screen::setScheduled(bool value) {
+    std::lock_guard<std::mutex> lock(mtx);
+    scheduled = value;
+}
+
+bool Screen::isScheduled() const {
+    std::lock_guard<std::mutex> lock(mtx);
+    return scheduled;
+}
+
+
 
 size_t Screen::getTotalInstructions() const {
     std::lock_guard<std::mutex> lock(mtx);
