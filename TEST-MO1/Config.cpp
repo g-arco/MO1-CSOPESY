@@ -58,7 +58,7 @@ void Config::loadConfig(const std::string& filename) {
             file >> value;
             config.maxIns = clamp(value, 1, 429496729);
         }
-        else if (parameter == "delays-per-exec") {
+        else if (parameter == "delay-per-exec") {
             int value;
             file >> value;
             config.delayPerExec = clamp(value, 0, 429496729);
