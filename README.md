@@ -31,7 +31,7 @@ g++ -std=c++17 -pthread -o csopesy main.cpp
 Or for Windows (e.g. using MSYS2):
 
 g++ -std=c++17 -pthread -o csopesy.exe main.cpp
-3. ▶Run the Emulator
+3. Run the Emulator
 
 ./csopesy
 Available Commands
