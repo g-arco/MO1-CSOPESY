@@ -11,6 +11,7 @@
 
 #include "Config.h"
 #include "Screen.h"
+#include "MemoryManager.h"
 
 // Scheduler class responsible for managing processes and CPU cores
 class Scheduler {
@@ -28,6 +29,8 @@ public:
 
 private:
     enum class InternalSchedulerType { FCFS, RR };
+    MemoryManager* memManager;
+    int quantumCycle = 0;  // To track snapshots
 
     bool scheduled = false;
 

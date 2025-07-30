@@ -118,6 +118,7 @@ void Screen::executeNextInstruction() {
             if (!memory.count(var1)) memory[var1] = 0;
 
             int result = op1 + op2;
+            memory[var1] = result;
 
             /*std::cout << "[INFO] ADD: " << var1 << " = " << op1 << " + " << op2
                 << " (New: " << memory[var1] << ")\n";*/
@@ -137,6 +138,7 @@ void Screen::executeNextInstruction() {
             if (!memory.count(var1)) memory[var1] = 0;
 
             int result = op1 - op2;
+            memory[var1] = result;
 
             /*std::cout << "[INFO] SUBTRACT: " << var1 << " = " << op1 << " - " << op2
                 << " (New: " << memory[var1] << ")\n";*/
