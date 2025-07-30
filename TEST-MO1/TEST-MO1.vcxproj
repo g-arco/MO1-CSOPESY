@@ -22,6 +22,7 @@
     <ClCompile Include="CLIUtils.cpp" />
     <ClCompile Include="Config.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="MemoryManager.cpp" />
     <ClCompile Include="ProcessManager.cpp" />
     <ClCompile Include="Scheduler.cpp" />
     <ClCompile Include="Screen.cpp" />
@@ -30,6 +31,7 @@
     <ClInclude Include="CLIUtils.h" />
     <ClInclude Include="Config.h" />
     <ClInclude Include="Instruction.h" />
+    <ClInclude Include="MemoryManager.h" />
     <ClInclude Include="ProcessManager.h" />
     <ClInclude Include="Scheduler.h" />
     <ClInclude Include="Screen.h" />

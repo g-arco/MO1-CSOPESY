@@ -34,6 +34,7 @@ Scheduler::Scheduler(const Config& cfg)
     generatingDummies(false),
     dummyCounter(0)
 {
+    memManager = new MemoryManager(16384, 4096);
     std::string lowerType = config.schedulerType;
     std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
     schedulerType = (lowerType == "rr") ? InternalSchedulerType::RR : InternalSchedulerType::FCFS;
@@ -107,9 +108,15 @@ void Scheduler::worker(int coreId) {
             if (!screenQueue.empty()) {
                 screen = screenQueue.front();
                 screenQueue.pop();
+
+                if (!memManager->insertProcess(screen)) {
+                    // Not enough memory, put it back
+                    addProcess(screen);
+                    continue;
+                }
+
                 screen->setCoreAssigned(coreId);
                 screen->setScheduled(true);
-
             }
         }
 
@@ -182,10 +189,16 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         int executed = 0;
 
         while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
+            screen->executeNextInstruction();
+
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
-                break;
             }
+
+            // After each quantum, update memory & snapshot:
+            memManager->removeFinished({ screen });
+            quantumCycle++;
+            memManager->generateMemoryStamp(quantumCycle);
 
             for (int i = 0; i < config.delayPerExec; ++i) {
                 ++cpuTicks;
