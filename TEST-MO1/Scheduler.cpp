@@ -1,5 +1,7 @@
 #include "Scheduler.h"
 #include "ProcessManager.h"
+#include "MemoryManager.h"
+
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -181,11 +183,27 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         std::ofstream logFile(screen->getName() + ".txt", std::ios::app);
         int executed = 0;
 
+        int pid = screen->getProcessId();
+
+        // Allocate memory if it's the first time
+        static std::map<int, bool> memoryAllocated;
+        if (!memoryAllocated[pid]) {
+            if (!memoryManager.allocate(pid)) {
+                screen->setStatus(ProcessStatus::READY);
+                screen->setCoreAssigned(-1);
+                addProcess(screen); // requeue process
+                return;
+            }
+            memoryAllocated[pid] = true;
+        }
+
         while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
                 break;
             }
+
+
 
             for (int i = 0; i < config.delayPerExec; ++i) {
                 ++cpuTicks;
@@ -211,22 +229,28 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 handleProcessError(screen, e.what());
                 break;
             }
+
         }
 
         if (!screen->hasError()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
-
+                memoryManager.release(pid); // release memory
+                memoryAllocated[pid] = false;
             }
             else {
                 screen->setStatus(ProcessStatus::READY);
+                screen->setCoreAssigned(-1);
                 addProcess(screen);
-
             }
         }
-    }
-    catch (const std::exception& e) {
 
+        // Snapshot memory every quantum
+        memoryManager.snapshot(cpuTicks / config.quantum);
+    }
+
+
+    catch (const std::exception& e) {
     }
 }
 

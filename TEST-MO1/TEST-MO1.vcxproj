@@ -25,10 +25,12 @@
     <ClCompile Include="ProcessManager.cpp" />
     <ClCompile Include="Scheduler.cpp" />
     <ClCompile Include="Screen.cpp" />
+    <ClCompile Include="MemoryManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CLIUtils.h" />
     <ClInclude Include="Config.h" />
+    <ClInclude Include="MemoryManager.h" />
     <ClInclude Include="Instruction.h" />
     <ClInclude Include="ProcessManager.h" />
     <ClInclude Include="Scheduler.h" />

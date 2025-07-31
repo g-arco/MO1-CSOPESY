@@ -93,7 +93,6 @@ void ProcessManager::listScreens(const Config& config) {
         }
     }
 
-
     int totalCores = config.numCpu;
     int activeCores = static_cast<int>(activeCoreIds.size());
     int coresAvailable = std::max(0, totalCores - activeCores);
@@ -105,6 +104,23 @@ void ProcessManager::listScreens(const Config& config) {
         << "CPU Utilization: " << std::fixed << std::setprecision(2) << utilization << "%\n"
         << "\n----------------------------------------\n";
 
+    // Ready Processes
+    std::cout << "\nReady Processes:\n";
+    int cntReady = 0;
+    for (const auto& pair : processes) {
+        const std::string& name = pair.first;
+        const std::shared_ptr<Screen>& proc = pair.second;
+
+        if (proc->getStatus() == ProcessStatus::READY) {
+            cntReady++;
+            std::cout << std::setw(15) << std::left << ("- " + name)
+                << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+                << "Awaiting CPU\n";
+        }
+    }
+    if (cntReady == 0) std::cout << "No ready processes.\n";
+
+    // Running Processes
     std::cout << "\nRunning Processes:\n";
     int cntRunning = 0;
     for (const auto& pair : processes) {
@@ -120,9 +136,9 @@ void ProcessManager::listScreens(const Config& config) {
                 << " / " << proc->getTotalInstructions() << "\n";
         }
     }
-
     if (cntRunning == 0) std::cout << "No running processes.\n";
 
+    // Finished Processes
     std::cout << "\nFinished Processes:\n";
     int cntFinished = 0;
     for (const auto& pair : processes) {
@@ -141,6 +157,7 @@ void ProcessManager::listScreens(const Config& config) {
 
     std::cout << "----------------------------------------\n\n";
 }
+
 
 std::vector<std::shared_ptr<Screen>> ProcessManager::getAllProcesses() {
     std::lock_guard<std::mutex> lock(processMutex);
@@ -178,6 +195,22 @@ void ProcessManager::generateReport() {
         << "CPU Utilization: " << std::fixed << std::setprecision(2) << utilization << "%\n"
         << "\n----------------------------------------\n";
 
+    
+    file << "\nReady Processes:\n";
+    int cntReady = 0;
+    for (const auto& pair : processes) {
+        const std::string& name = pair.first;
+        const std::shared_ptr<Screen>& proc = pair.second;
+
+        if (proc->getStatus() == ProcessStatus::READY) {
+            cntReady++;
+            std::cout << std::setw(15) << std::left << ("- " + proc->getName())
+                << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+                << "Awaiting CPU\n";
+        }
+    }
+
+    
     file << "\nRunning Processes:\n";
     int cntRunning = 0;
     for (const auto& pair : processes) {
@@ -215,6 +248,8 @@ void ProcessManager::generateReport() {
 
     std::cout << "Report saved to csopesy-log.txt\n";
 }
+
+
 
 void ProcessManager::registerProcess(std::shared_ptr<Screen> process) {
     {
