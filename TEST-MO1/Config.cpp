@@ -63,6 +63,21 @@ void Config::loadConfig(const std::string& filename) {
             file >> value;
             config.delayPerExec = clamp(value, 0, 429496729);
         }
+        else if (parameter == "max-overall-mem") {
+            int value;
+            file >> value;
+            config.maxOverallMem = clamp(value, 1, 1073741824); // Example clamp: 1B to 1GB
+        }
+        else if (parameter == "mem-per-proc") {
+            int value;
+            file >> value;
+            config.memPerProc = clamp(value, 1, 1073741824);
+        }
+        else if (parameter == "mem-per-frame") {
+            int value;
+            file >> value;
+            config.memPerFrame = clamp(value, 1, 1073741824);
+        }
         else {
             std::cerr << "Unknown parameter in config file: " << parameter << std::endl;
         }

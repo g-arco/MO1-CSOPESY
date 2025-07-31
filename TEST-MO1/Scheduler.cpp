@@ -246,7 +246,7 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         }
 
         // Snapshot memory every quantum
-        memoryManager.snapshot(cpuTicks / config.quantum);
+        memoryManager.snapshot(cpuTicks);
     }
 
 
@@ -291,10 +291,10 @@ void Scheduler::dummyProcessLoop() {
             auto now = std::chrono::steady_clock::now();
             auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastGenTime).count();
 
-            if (dummyCounter >= 50) {
-                /*std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";*/
+            /*if (dummyCounter >= 50) {
+                /*std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";
                 break;
-            }
+            }*/
 
             if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);

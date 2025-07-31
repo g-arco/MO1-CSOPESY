@@ -109,7 +109,7 @@ void MemoryManager::snapshot(int quantumCycle) {
 
     file << "Timestamp: " << buf << "\n";
     file << "Number of processes in memory: " << getProcessCount() << "\n";
-    file << "Total external fragmentation in KB: " << (calculateExternalFragmentation()) << "\n\n";
+    file << "Total external fragmentation in bytes: " << (calculateExternalFragmentation()) << "\n\n";
 
     file << "----end---- = " << totalMemory << "\n";
 
@@ -120,7 +120,7 @@ void MemoryManager::snapshot(int quantumCycle) {
             int upper = block.start + block.size;
             file << upper << "\n";
             file << "P" << block.processId << "\n";
-            file << block.start << "\n";
+            file << block.start << "\n\n";
         }
     }
 

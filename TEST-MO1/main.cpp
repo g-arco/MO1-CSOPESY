@@ -25,6 +25,7 @@ void commandLoop() {
         iss >> cmd;
 
         if (cmd == "exit") {
+            scheduler->finish();
             std::cout << "Exiting...\n";
             break;
         }
@@ -47,6 +48,9 @@ void commandLoop() {
                 std::cout << "Minimum Instructions: " << config.minIns << "\n";
                 std::cout << "Maximum Instructions: " << config.maxIns << "\n";
                 std::cout << "Delays per Exec: " << config.delayPerExec << "\n";
+                std::cout << "Minimum Overall Memory: " << config.maxOverallMem << "\n";
+                std::cout << "Memory per Frame: " << config.memPerFrame << "\n";
+                std::cout << "Memory per Process: " << config.memPerProc << "\n";
 
                 scheduler = new Scheduler(config);
                 initialized = true;
@@ -78,7 +82,6 @@ void commandLoop() {
         else if (cmd == "scheduler-stop") {
             if (scheduler) {
                 scheduler->stopDummyGeneration();
-                scheduler->finish();
             }
         }
         else if (cmd == "screen") {
