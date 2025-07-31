@@ -16,10 +16,10 @@ MemoryManager::MemoryManager(int total, int perProc, int frameSize)
 }
 
 bool MemoryManager::allocate(int processId) {
-    std::cout << "[ALLOCATE] Attempting to allocate for P" << processId << "\n";
+    //std::cout << "[ALLOCATE] Attempting to allocate for P" << processId << "\n";
     for (size_t i = 0; i < memory.size(); ++i) {
         auto& block = memory[i];
-        std::cout << "[ALLOCATE] Inspecting block: start=" << block.start << ", size=" << block.size << ", free=" << block.free << "\n";
+      //  std::cout << "[ALLOCATE] Inspecting block: start=" << block.start << ", size=" << block.size << ", free=" << block.free << "\n";
         if (block.free && block.size >= memPerProc) {
             Block allocated = { block.start, memPerProc, processId, false };
             block.start += memPerProc;
@@ -27,28 +27,28 @@ bool MemoryManager::allocate(int processId) {
 
             if (block.size == 0) {
                 memory.erase(memory.begin() + i);
-                std::cout << "[ALLOCATE] Erased empty block after allocation.\n";
+        //        std::cout << "[ALLOCATE] Erased empty block after allocation.\n";
             }
             else {
                 memory[i] = block;
-                std::cout << "[ALLOCATE] Updated remaining block: start=" << block.start << ", size=" << block.size << "\n";
+          //      std::cout << "[ALLOCATE] Updated remaining block: start=" << block.start << ", size=" << block.size << "\n";
             }
 
             memory.insert(memory.begin() + i, allocated);
-            std::cout << "[ALLOCATE] Allocated block for P" << processId << ": start=" << allocated.start << ", size=" << allocated.size << "\n";
+        //    std::cout << "[ALLOCATE] Allocated block for P" << processId << ": start=" << allocated.start << ", size=" << allocated.size << "\n";
             calculateExternalFragmentation();
             return true;
 
 
         }
     }
-    std::cout << "[ALLOCATE] Failed to allocate for P" << processId << "\n";
+  //  std::cout << "[ALLOCATE] Failed to allocate for P" << processId << "\n";
     calculateExternalFragmentation();
     return false;
 }
 
 void MemoryManager::release(int processId) {
-    std::cout << "[RELEASE] Releasing memory for P" << processId << "\n";
+ //   std::cout << "[RELEASE] Releasing memory for P" << processId << "\n";
     for (auto& block : memory) {
         if (block.processId == processId) {
             block.free = true;
@@ -60,7 +60,7 @@ void MemoryManager::release(int processId) {
     // Merge adjacent free blocks
     for (size_t i = 0; i + 1 < memory.size(); ) {
         if (memory[i].free && memory[i + 1].free) {
-            std::cout << "[MERGE] Merging blocks at index " << i << " and " << (i + 1) << "\n";
+        //    std::cout << "[MERGE] Merging blocks at index " << i << " and " << (i + 1) << "\n";
             memory[i].size += memory[i + 1].size;
             memory.erase(memory.begin() + i + 1);
         }
@@ -77,7 +77,7 @@ int MemoryManager::getProcessCount() const {
             seen.insert(block.processId);
         }
     }
-    std::cout << "[COUNT] Unique processes in memory: " << seen.size() << "\n";
+ //   std::cout << "[COUNT] Unique processes in memory: " << seen.size() << "\n";
     return static_cast<int>(seen.size());
 }
 
@@ -88,8 +88,8 @@ int MemoryManager::calculateExternalFragmentation() const {
             external += block.size;
         }
     }
-    std::cout << "[FRAGMENT] Total external fragmentation (for mem size "
-        << memPerProc << "): " << external << " bytes\n";
+  //  std::cout << "[FRAGMENT] Total external fragmentation (for mem size "
+   //     << memPerProc << "): " << external << " bytes\n";
     return external;
 }
 
@@ -125,5 +125,5 @@ void MemoryManager::snapshot(int quantumCycle) {
     }
 
     file << "----start---- = 0\n";
-    std::cout << "[SNAPSHOT] Snapshot written to " << filename.str() << "\n";
+  //  std::cout << "[SNAPSHOT] Snapshot written to " << filename.str() << "\n";
 }
