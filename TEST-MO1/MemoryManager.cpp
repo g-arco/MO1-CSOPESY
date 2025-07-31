@@ -84,7 +84,7 @@ int MemoryManager::getProcessCount() const {
 int MemoryManager::calculateExternalFragmentation() const {
     int external = 0;
     for (const auto& block : memory) {
-        if (block.free && block.size < memPerProc) {
+        if (block.free) {
             external += block.size;
         }
     }
@@ -109,7 +109,7 @@ void MemoryManager::snapshot(int quantumCycle) {
 
     file << "Timestamp: " << buf << "\n";
     file << "Number of processes in memory: " << getProcessCount() << "\n";
-    file << "Total external fragmentation in KB: " << (calculateExternalFragmentation() / 1024) << "\n\n";
+    file << "Total external fragmentation in KB: " << (calculateExternalFragmentation()) << "\n\n";
 
     file << "----end---- = " << totalMemory << "\n";
 
