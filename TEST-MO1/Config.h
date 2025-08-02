@@ -17,9 +17,10 @@ struct Config {
     int delayPerExec = 200;
     std::string schedulerType = "fcfs";
     int quantum = 0;
-    int maxOverallMem;
-    int memPerProc;
-    int memPerFrame;
+    int maxOverallMem = 16384;
+    int memPerFrame = 16;
+    int minMemPerProc = 4096;
+    int maxMemPerProc = 4096;
     void loadConfig(const std::string& filename);
 };
 

@@ -66,17 +66,26 @@ void Config::loadConfig(const std::string& filename) {
         else if (parameter == "max-overall-mem") {
             int value;
             file >> value;
-            config.maxOverallMem = clamp(value, 1, 1073741824); // Example clamp: 1B to 1GB
-        }
-        else if (parameter == "mem-per-proc") {
-            int value;
-            file >> value;
-            config.memPerProc = clamp(value, 1, 1073741824);
+            // Must be power of 2, range [2^6, 2^16] = [64, 65536]
+            config.maxOverallMem = clamp(value, 64, 65536);
         }
         else if (parameter == "mem-per-frame") {
             int value;
             file >> value;
-            config.memPerFrame = clamp(value, 1, 1073741824);
+            // Must be power of 2, range [2^6, 2^16] = [64, 65536]
+            config.memPerFrame = clamp(value, 64, 65536);
+        }
+        else if (parameter == "min-mem-per-proc") {
+            int value;
+            file >> value;
+            // Must be power of 2, range [2^6, 2^16] = [64, 65536]
+            config.minMemPerProc = clamp(value, 64, 65536);
+        }
+        else if (parameter == "max-mem-per-proc") {
+            int value;
+            file >> value;
+            // Must be power of 2, range [2^6, 2^16] = [64, 65536]
+            config.maxMemPerProc = clamp(value, 64, 65536);
         }
         else {
             std::cerr << "Unknown parameter in config file: " << parameter << std::endl;

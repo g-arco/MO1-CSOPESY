@@ -1,70 +1,85 @@
-#pragma once
+#ifndef SCHEDULER_H
+#define SCHEDULER_H
 
-#include <string>
-#include <vector>
+#include "Screen.h"
+#include "Config.h"
 #include <queue>
+#include <vector>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
-#include <memory>
 #include <atomic>
+#include <memory>
 
-#include "Config.h"
-#include "Screen.h"
+// Forward declaration to avoid circular dependency
+class Screen;
 
-// Scheduler class responsible for managing processes and CPU cores
+// Internal scheduler type enumeration
+enum class InternalSchedulerType {
+    FCFS,  // First Come First Serve
+    RR     // Round Robin
+};
+
 class Scheduler {
-public:
-    explicit Scheduler(const Config& cfg);
-    ~Scheduler();
-
-    void start();
-    void finish();
-
-    void addProcess(const std::shared_ptr<Screen>& process);
-
-    void startDummyGeneration();
-    void stopDummyGeneration();
-
 private:
-    enum class InternalSchedulerType { FCFS, RR };
+    // Configuration and state
+    Config config;
+    std::atomic<bool> finished;
+    int numCores;
+    int quantumCycles;
+    InternalSchedulerType schedulerType;
 
-    bool scheduled = false;
+    // Process queue and synchronization
+    std::queue<std::shared_ptr<Screen>> screenQueue;
+    mutable std::mutex queueMutex;
+    std::condition_variable cv;
 
-    // Worker thread function for each CPU core
+    // Worker threads
+    std::vector<std::thread> cores;
+
+    // Dummy process generation
+    std::atomic<bool> generatingDummies;
+    std::thread dummyThread;
+    int dummyCounter;
+
+    // Private methods
     void worker(int coreId);
-
-    // Scheduling strategies
     void executeProcessFCFS(const std::shared_ptr<Screen>& screen, int coreId);
     void executeProcessRR(const std::shared_ptr<Screen>& screen, int coreId);
-
-    // Dummy process generation thread loop
     void dummyProcessLoop();
-
-    // Utility helpers
     std::string currentTimestamp();
     void handleProcessError(const std::shared_ptr<Screen>& screen, const std::string& message);
 
-    // Wait for all threads to join
+public:
+    // Constructor and destructor
+    explicit Scheduler(const Config& cfg);
+    ~Scheduler();
+
+    // Core functionality
+    void start();
+    void finish();
     void joinAll();
 
-    // Configuration and state
-    const Config& config;
+    // Process management
+    void addProcess(const std::shared_ptr<Screen>& process);
 
-    std::atomic<bool> finished;
-    std::atomic<bool> generatingDummies;
+    // Dummy process generation
+    void startDummyGeneration();
+    void stopDummyGeneration();
 
-    InternalSchedulerType schedulerType;
+    // Getters
+    int getNumCores() const { return numCores; }
+    int getQuantumCycles() const { return quantumCycles; }
+    InternalSchedulerType getSchedulerType() const { return schedulerType; }
+    bool isFinished() const { return finished.load(); }
+    bool isGeneratingDummies() const { return generatingDummies.load(); }
+    int getDummyCounter() const { return dummyCounter; }
 
-    int numCores;
-    int quantumCycles;
-
-    std::vector<std::thread> cores;
-    std::thread dummyThread;
-
-    std::mutex queueMutex;
-    std::condition_variable cv;
-    std::queue<std::shared_ptr<Screen>> screenQueue;
-
-    int dummyCounter;
+    // Statistics
+    size_t getQueueSize() const {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        return screenQueue.size();
+    }
 };
+
+#endif // SCHEDULER_H

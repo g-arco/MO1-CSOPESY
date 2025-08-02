@@ -18,8 +18,9 @@ extern int globalProcessId;
 
 extern Config config;
 extern std::atomic<int> activeCores;
+// CHANGE: MCO2 - Include external memory manager
+extern std::unique_ptr<MemoryManager> memoryManager;
 std::atomic<int> cpuTicks(0);
-
 
 class ActiveCoreGuard {
     std::atomic<int>& counter;
@@ -46,7 +47,7 @@ Scheduler::~Scheduler() {
     finish();
     stopDummyGeneration();
     joinAll();
-   /* std::cout << "[Scheduler] Destructor finished.\n";*/
+    /* std::cout << "[Scheduler] Destructor finished.\n";*/
 }
 
 void Scheduler::start() {
@@ -60,7 +61,7 @@ void Scheduler::start() {
         /*std::cerr << "[Scheduler] Failed to start worker threads: " << e.what() << '\n';*/
     }
     catch (...) {
-       /* std::cerr << "[Scheduler] Unknown error starting worker threads.\n";*/
+        /* std::cerr << "[Scheduler] Unknown error starting worker threads.\n";*/
     }
 }
 
@@ -81,7 +82,7 @@ void Scheduler::addProcess(const std::shared_ptr<Screen>& process) {
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         screenQueue.push(process);
-        
+
     }
     cv.notify_one();
 }
@@ -102,7 +103,7 @@ void Scheduler::worker(int coreId) {
             cv.wait(lock, [this] { return finished.load() || !screenQueue.empty(); });
 
             if (finished.load() && screenQueue.empty()) {
-               /* std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";*/
+                /* std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";*/
                 return;
             }
 
@@ -134,17 +135,43 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
         screen->setCoreAssigned(coreId);
         std::ofstream logFile(screen->getName() + ".txt");
 
+        // CHANGE: MCO2 - Memory allocation check for FCFS
+        int pid = screen->getProcessId();
+        int memorySize = screen->getAllocatedMemory();
+
+        // Allocate memory if needed and not already allocated
+        if (memorySize > 0 && memoryManager) {
+            // Memory should already be allocated when process was created
+            // Just verify it's still valid
+            if (!memoryManager->allocateProcess(pid, memorySize)) {
+                std::cout << "[Scheduler][FCFS] Failed to allocate memory for process " << screen->getName() << "\n";
+                screen->setStatus(ProcessStatus::READY);
+                screen->setCoreAssigned(-1);
+                addProcess(screen); // Re-queue for later
+                return;
+            }
+        }
+
         while (!screen->isFinished() && !finished.load()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
                 screen->printLog("Process finished execution.");
+
+                // CHANGE: MCO2 - Deallocate memory when process finishes
+                if (memoryManager) {
+                    memoryManager->deallocateProcess(pid);
+                }
                 break;
             }
 
-          /*  std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction "
-                << screen->getCurrentInstruction() + 1 << " / "
-                << screen->getTotalInstructions() << " on process '"
-                << screen->getName() << "'\n";*/
+            /*  std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction "
+                  << screen->getCurrentInstruction() + 1 << " / "
+                  << screen->getTotalInstructions() << " on process '"
+                  << screen->getName() << "'\n";*/
+
+                  // CHANGE: MCO2 - Update CPU tick counters for memory manager
+            int idleTicks = 0;
+            int activeTicks = config.delayPerExec;
 
             for (int i = 0; i < config.delayPerExec; ++i) {
                 ++cpuTicks;
@@ -156,11 +183,33 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
                     << " \"Hello world from " << screen->getName() << "!\"\n";
                 logFile.flush();*/
 
+                // CHANGE: MCO2 - Execute instruction with potential page fault handling
                 screen->executeNextInstruction();
+
+                // CHANGE: MCO2 - Check for memory violations after instruction execution
+                if (screen->hasError()) {
+                    handleProcessError(screen, "Memory access violation occurred during instruction execution.");
+
+                    // Deallocate memory for terminated process
+                    if (memoryManager) {
+                        memoryManager->deallocateProcess(pid);
+                    }
+                    break;
+                }
             }
             catch (const std::exception& e) {
                 handleProcessError(screen, e.what());
+
+                // CHANGE: MCO2 - Deallocate memory on error
+                if (memoryManager) {
+                    memoryManager->deallocateProcess(pid);
+                }
                 break;
+            }
+
+            // CHANGE: MCO2 - Update memory manager with CPU statistics
+            if (memoryManager) {
+                memoryManager->updateCpuTicks(idleTicks, activeTicks);
             }
         }
 
@@ -174,6 +223,11 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
     catch (const std::exception& e) {
         std::cerr << "[Scheduler][FCFS][Exception] Process '" << screen->getName()
             << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+
+        // CHANGE: MCO2 - Cleanup memory on exception
+        if (memoryManager) {
+            memoryManager->deallocateProcess(screen->getProcessId());
+        }
     }
 }
 
@@ -184,16 +238,28 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         int executed = 0;
 
         int pid = screen->getProcessId();
+        int memorySize = screen->getAllocatedMemory();
 
-        // Allocate memory if it's the first time
+        // CHANGE: MCO2 - Enhanced memory allocation for RR with demand paging
         static std::map<int, bool> memoryAllocated;
         if (!memoryAllocated[pid]) {
+            // CHANGE: MCO2 - Use new memory manager instead of old allocate method
+            if (memorySize > 0 && memoryManager) {
+                if (!memoryManager->allocateProcess(pid, memorySize)) {
+                    screen->setStatus(ProcessStatus::READY);
+                    screen->setCoreAssigned(-1);
+                    addProcess(screen); // requeue process
+                    return;
+                }
+            }
+            /* ORIGINAL CODE - commented out
             if (!memoryManager.allocate(pid)) {
                 screen->setStatus(ProcessStatus::READY);
                 screen->setCoreAssigned(-1);
                 addProcess(screen); // requeue process
                 return;
             }
+            */
             memoryAllocated[pid] = true;
         }
 
@@ -203,7 +269,9 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 break;
             }
 
-
+            // CHANGE: MCO2 - Track idle and active CPU ticks separately
+            int idleTicks = 0;
+            int activeTicks = config.delayPerExec;
 
             for (int i = 0; i < config.delayPerExec; ++i) {
                 ++cpuTicks;
@@ -216,10 +284,18 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                     << " from process " << screen->getName() << "\"\n";
                 logFile.flush();*/
 
+                // CHANGE: MCO2 - Execute instruction with potential page fault and memory violation handling
                 screen->executeNextInstruction();
 
+                // CHANGE: MCO2 - Enhanced error handling for memory violations
                 if (screen->hasError()) {
-                    handleProcessError(screen, "Error encountered during instruction execution.");
+                    handleProcessError(screen, "Memory access violation occurred during instruction execution.");
+
+                    // Deallocate memory and mark as not allocated
+                    if (memoryManager) {
+                        memoryManager->deallocateProcess(pid);
+                    }
+                    memoryAllocated[pid] = false;
                     break;
                 }
 
@@ -227,15 +303,32 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
             }
             catch (const std::exception& e) {
                 handleProcessError(screen, e.what());
+
+                // CHANGE: MCO2 - Cleanup memory on exception
+                if (memoryManager) {
+                    memoryManager->deallocateProcess(pid);
+                }
+                memoryAllocated[pid] = false;
                 break;
             }
 
+            // CHANGE: MCO2 - Update memory manager with CPU tick information
+            if (memoryManager) {
+                memoryManager->updateCpuTicks(idleTicks, activeTicks);
+            }
         }
 
         if (!screen->hasError()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
+
+                // CHANGE: MCO2 - Use new memory manager deallocation method
+                if (memoryManager) {
+                    memoryManager->deallocateProcess(pid);
+                }
+                /* ORIGINAL CODE - commented out
                 memoryManager.release(pid); // release memory
+                */
                 memoryAllocated[pid] = false;
             }
             else {
@@ -245,12 +338,21 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
             }
         }
 
+        // CHANGE: MCO2 - Memory snapshot is now handled by the memory manager internally
+        // The memory manager tracks its own snapshots based on page faults and memory operations
+        /* ORIGINAL CODE - commented out
         // Snapshot memory every quantum
         memoryManager.snapshot(cpuTicks);
+        */
     }
-
-
     catch (const std::exception& e) {
+        // CHANGE: MCO2 - Enhanced exception handling with memory cleanup
+        std::cerr << "[Scheduler][RR][Exception] Process '" << screen->getName()
+            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+
+        if (memoryManager) {
+            memoryManager->deallocateProcess(screen->getProcessId());
+        }
     }
 }
 
@@ -283,6 +385,8 @@ void Scheduler::dummyProcessLoop() {
         std::random_device rd;
         std::mt19937 gen(rd());
         std::uniform_int_distribution<> dist(config.minIns, config.maxIns);
+        // CHANGE: MCO2 - Add memory size distribution for dummy processes
+        std::uniform_int_distribution<> memDist(config.minMemPerProc, config.maxMemPerProc);
 
         dummyCounter = 0;
         auto lastGenTime = std::chrono::steady_clock::now();
@@ -300,6 +404,36 @@ void Scheduler::dummyProcessLoop() {
                 std::string name = "process" + std::to_string(++dummyCounter);
                 /*std::cout << "[Scheduler] Generating dummy process: " << name << " (ID: " << globalProcessId << ")\n";*/
 
+                // CHANGE: MCO2 - Generate dummy processes with random memory sizes
+                int memorySize = memDist(gen);
+                // Ensure memory size is power of 2
+                int powerOf2 = 64; // Start with minimum
+                while (powerOf2 < memorySize && powerOf2 < 65536) {
+                    powerOf2 *= 2;
+                }
+                memorySize = powerOf2;
+
+                auto screen = std::make_shared<Screen>();
+                screen->setName(name);
+                screen->generateDummyInstructions(config);
+                screen->setAllocatedMemory(memorySize); // CHANGE: MCO2 - Set memory size for dummy process
+
+                int instructionCount = dist(gen);
+                screen->truncateInstructions(instructionCount);
+                screen->setProcessId(globalProcessId++);
+                screen->setStatus(ProcessStatus::READY);
+
+                // CHANGE: MCO2 - Allocate memory for dummy process
+                if (memoryManager && memoryManager->allocateProcess(screen->getProcessId(), memorySize)) {
+                    ProcessManager::registerProcess(screen);
+                    addProcess(screen);
+                    /*std::cout << "[Scheduler] Dummy process " << name << " created with " << memorySize << " bytes\n";*/
+                }
+                else {
+                    /*std::cout << "[Scheduler] Failed to allocate memory for dummy process " << name << "\n";*/
+                }
+
+                /* ORIGINAL CODE - commented out
                 auto screen = std::make_shared<Screen>();
                 screen->setName(name);
                 screen->generateDummyInstructions(config);
@@ -308,8 +442,9 @@ void Scheduler::dummyProcessLoop() {
                 screen->truncateInstructions(instructionCount);
                 screen->setProcessId(globalProcessId++);
                 screen->setStatus(ProcessStatus::READY);
-				ProcessManager::registerProcess(screen);
+                ProcessManager::registerProcess(screen);
                 addProcess(screen);
+                */
 
                 lastGenTime = now;
             }
@@ -322,7 +457,7 @@ void Scheduler::dummyProcessLoop() {
         /*std::cerr << "[Scheduler] Exception in dummyProcessLoop: " << e.what() << "\n";*/
     }
     catch (...) {
-       /* std::cerr << "[Scheduler] Unknown exception in dummyProcessLoop.\n";*/
+        /* std::cerr << "[Scheduler] Unknown exception in dummyProcessLoop.\n";*/
     }
 
     /*std::cout << "[Scheduler] Dummy process generation ended.\n";*/
@@ -348,4 +483,3 @@ void Scheduler::handleProcessError(const std::shared_ptr<Screen>& screen, const 
     std::cerr << "[Scheduler][ProcessError] Process '" << screen->getName()
         << "' encountered an error: " << message << "\n";
 }
-
