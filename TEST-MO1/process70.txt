@@ -1,0 +1,2 @@
+(08/03/2025 10:36:07 PM) Core:5 "Hello world from process70!"
+(08/03/2025 10:36:07 PM) Core:5 "Hello world from process70!"

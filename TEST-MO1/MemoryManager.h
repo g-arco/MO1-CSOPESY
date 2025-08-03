@@ -55,6 +55,22 @@ struct Block {
 class MemoryManager {
 private:
     // Original members (kept for compatibility)
+    std::atomic<bool> _shouldStop{ false };
+    bool isValidProcessMemory(const ProcessMemory& pm) const {
+        return pm.processId > 0 &&
+            pm.allocatedMemory > 0 &&
+            pm.allocatedMemory <= maxOverallMem &&
+            !pm.pages.empty();
+    }
+    bool isMemoryFull() const {
+        int usedFrames = 0;
+        for (const auto& frame : physicalFrames) {
+            if (frame.occupied) usedFrames++;
+        }
+        return usedFrames >= (physicalFrames.size() * 0.9); // 90% threshold
+    }
+
+
     std::vector<Block> memory;
     int totalMemory;
     int memPerProc;
@@ -62,7 +78,6 @@ private:
     int nextSnapshot;
 
     mutable std::mutex memoryMutex;
-
     // CHANGE: New members for demand paging
     int maxOverallMem;
     int memPerFrame;
@@ -96,6 +111,8 @@ public:
     // CHANGE: New constructor with demand paging parameters
     MemoryManager(int maxMem, int minProc, int maxProc, int frameSize);
     ~MemoryManager();
+    void finish();
+
 
     std::map<int, ProcessMemory> processMemoryMap;
     bool isProcessAllocated(int pid) const;

@@ -35,7 +35,7 @@ Screen::Screen(const std::string& name_, const std::vector<Instruction>& instrs,
     updateTimestamp();
     logFile.open(name + ".log", std::ios::app);
     if (!logFile.is_open()) {
-        std::cerr << "Failed to open log file for process: " << name << std::endl;
+      std::cerr << "Failed to open log file for process: " << name << std::endl;
     }
 }
 
@@ -171,6 +171,7 @@ void Screen::executeNextInstruction() {
             ss << timeBuf << " Core:" << getCoreAssigned() << " \"" << finalOutput << "\"";
             std::string logEntry = ss.str();
 
+            
             std::ofstream logFile(name + ".log", std::ios::app);
             if (logFile.is_open()) {
                 logFile << logEntry << "\n";

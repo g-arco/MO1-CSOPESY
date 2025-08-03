@@ -7,6 +7,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cstring>
+#include <vector>
 
 // Original global declaration (commented out)
 // MemoryManager memoryManager(16384, 4096, 16); // default config
@@ -35,7 +36,7 @@ MemoryManager::MemoryManager(int maxMem, int minProc, int maxProc, int frameSize
     }
 
     // Original initialization (kept for compatibility)
-    memory.push_back({ 0, totalMemory, -1, true });
+    // memory.push_back({ 0, totalMemory, -1, true }); // COMMENTED OUT
     std::cout << "[INIT] Memory initialized with " << numFrames << " frames of " << memPerFrame << " bytes each\n";
     std::cout << "[INIT] Total memory: " << maxOverallMem << " bytes\n";
 }
@@ -49,6 +50,11 @@ MemoryManager::~MemoryManager() {
 // CHANGE: New method to allocate process with specific memory size
 bool MemoryManager::allocateProcess(int processId, int memorySize) {
     std::lock_guard<std::mutex> lock(memoryMutex);
+
+    if (processMemoryMap.find(processId) != processMemoryMap.end()) {
+        // Already allocated
+        return false;
+    }
 
     int currentUsed = getUsedMemory();
     if (currentUsed + memorySize > maxOverallMem) {
@@ -73,21 +79,31 @@ bool MemoryManager::allocateProcess(int processId, int memorySize) {
     procMem.allocatedMemory = memorySize;
 
     // Calculate number of pages needed
-    int numPages = (memorySize + memPerFrame - 1) / memPerFrame;
+    int frameSize = memPerFrame; // or whatever your frame size is
+    int numPages = memorySize / frameSize;
 
-    // Initialize pages (not in memory initially - demand paging)
-    for (int i = 0; i < numPages; ++i) {
-        Page page;
-        page.pageNumber = i;
-        page.inMemory = false;
-        page.frameNumber = -1;
-        procMem.pages.push_back(page);
+    procMem.pages.clear();
+    procMem.pages.resize(numPages);
+
+    for (int i = 0; i < numPages; i++) {
+        procMem.pages[i].frameNumber = -1; // no frame assigned yet
+        procMem.pages[i].inMemory = false; // not yet loaded in memory
     }
 
+    procMem.hasMemoryViolation = false;
+    procMem.violationTime = "";
+
+
     processMemoryMap[processId] = procMem;
-   // std::cout << "[MEMORY] Allocated " << memorySize << " bytes (" << numPages << " pages) for process " << processId << "\n";
+
+
+    // now use `pm`, which is a copy
+
+
+    //std::cout << "[MEMORY] Allocated " << memorySize << " bytes (" << numPages << " pages) for process " << processId << "\n";
     return true;
 }
+
 
 // CHANGE: New method to deallocate process memory
 void MemoryManager::deallocateProcess(int processId) {
@@ -102,15 +118,21 @@ void MemoryManager::deallocateProcess(int processId) {
 
     // Free all frames used by this process
     for (auto& page : procMem.pages) {
-        if (page.inMemory && page.frameNumber != -1) {
+        if (page.inMemory && page.frameNumber >= 0 && page.frameNumber < physicalFrames.size()) {
             physicalFrames[page.frameNumber].occupied = false;
             physicalFrames[page.frameNumber].processId = -1;
             physicalFrames[page.frameNumber].pageNumber = -1;
         }
     }
 
+
+    // Clear symbol table
+    procMem.symbolTable.clear();
+
     processMemoryMap.erase(it);
-   // std::cout << "[MEMORY] Deallocated memory for process " << processId << "\n";
+
+
+    //std::cout << "[MEMORY] Deallocated memory for process " << processId << "\n";
 }
 
 // CHANGE: Demand paging - find free frame
@@ -163,13 +185,22 @@ void MemoryManager::pageIn(int processId, int pageNumber) {
 
     // Update page table
     auto it = processMemoryMap.find(processId);
-    if (it != processMemoryMap.end()) {
+    if (it != processMemoryMap.end() && pageNumber < it->second.pages.size()) {
         it->second.pages[pageNumber].inMemory = true;
         it->second.pages[pageNumber].frameNumber = frameNumber;
         it->second.pages[pageNumber].lastAccessed = ++globalTime;
     }
 
     numPagedIn++;
+
+    // CHANGE 11: Force more paging when memory is full
+    if (isMemoryFull()) {
+        // Page out oldest frame to make room for future allocations
+        int victimFrame = selectVictimFrame();
+        if (victimFrame != frameNumber) { // Don't page out what we just paged in
+            pageOut(victimFrame);
+        }
+    }
     //std::cout << "[PAGING] Paged in: Process " << processId << ", Page " << pageNumber << " -> Frame " << frameNumber << "\n";
 }
 
@@ -210,7 +241,7 @@ void MemoryManager::pageOut(int frameNumber) {
     frame.pageNumber = -1;
 
     numPagedOut++;
-   // std::cout << "[PAGING] Paged out: Process " << processId << ", Page " << pageNumber << " from Frame " << frameNumber << "\n";
+    // std::cout << "[PAGING] Paged out: Process " << processId << ", Page " << pageNumber << " from Frame " << frameNumber << "\n";
 }
 
 // CHANGE: Memory access validation
@@ -232,8 +263,8 @@ int MemoryManager::getOffsetInPage(uint32_t address) {
 }
 
 uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
-  //  std::cout << "[READ] PID " << processId << " reading from 0x"
-    //    << std::hex << address << std::dec << "\n";
+    //   std::cout << "[READ] PID " << processId << " reading from 0x"
+    //       << std::hex << address << std::dec << "\n";
 
     std::lock_guard<std::mutex> lock(memoryMutex);  // Add thread safety
 
@@ -247,8 +278,8 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
     ProcessMemory& procMem = it->second;  // Safe to access now
 
     if (address >= it->second.allocatedMemory) {
-       // std::cerr << "[READ] MEMORY VIOLATION: PID " << processId
-         //   << " tried to read 0x" << std::hex << address << std::dec << "\n";
+        // std::cerr << "[READ] MEMORY VIOLATION: PID " << processId
+        //    << " tried to read 0x" << std::hex << address << std::dec << "\n";
 
         auto& procMem = it->second;
         procMem.hasMemoryViolation = true;
@@ -276,12 +307,12 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
 
     if (!procMem.pages[pageNumber].inMemory) {
         //std::cout << "[PAGE FAULT] PID " << processId << " reading page " << pageNumber
-       //     << " (addr 0x" << std::hex << address << std::dec << ")\n";
+        //      << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
 
         if (!procMem.pages[pageNumber].inMemory) {
-          //  std::cerr << "[READ] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
-           // throw std::runtime_error("Failed to bring page into memory after page fault");
+            //  std::cerr << "[READ] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
+            //  throw std::runtime_error("Failed to bring page into memory after page fault");
         }
     }
 
@@ -295,7 +326,7 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
     }
 
     //std::cout << "[READ] PID " << processId << " value at 0x"
-      //  << std::hex << address << ": " << value << std::dec << "\n";
+    //      << std::hex << address << ": " << value << std::dec << "\n";
 
     return value;
 }
@@ -303,8 +334,8 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
 
 
 void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value) {
-   // std::cout << "[WRITE] PID " << processId << " writing " << value << " to 0x"
-     //   << std::hex << address << std::dec << "\n";
+    // std::cout << "[WRITE] PID " << processId << " writing " << value << " to 0x"
+    //      << std::hex << address << std::dec << "\n";
 
     std::lock_guard<std::mutex> lock(memoryMutex);  // Add thread safety
 
@@ -319,8 +350,8 @@ void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value)
 
 
     if (address >= it->second.allocatedMemory) {
-      //  std::cerr << "[WRITE] MEMORY VIOLATION: PID " << processId
-        //    << " tried to write 0x" << std::hex << address << std::dec << "\n";
+        //  std::cerr << "[WRITE] MEMORY VIOLATION: PID " << processId
+        //         << " tried to write 0x" << std::hex << address << std::dec << "\n";
 
         auto& procMem = it->second;
         procMem.hasMemoryViolation = true;
@@ -348,12 +379,12 @@ void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value)
 
     if (!procMem.pages[pageNumber].inMemory) {
         //std::cout << "[PAGE FAULT] PID " << processId << " writing page " << pageNumber
-          //  << " (addr 0x" << std::hex << address << std::dec << ")\n";
+        //       << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
 
         if (!procMem.pages[pageNumber].inMemory) {
-         //   std::cerr << "[WRITE] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
-           // throw std::runtime_error("Failed to bring page into memory after page fault");
+            //  std::cerr << "[WRITE] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
+            //  throw std::runtime_error("Failed to bring page into memory after page fault");
         }
     }
 
@@ -367,9 +398,9 @@ void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value)
         frame.data[offset] = value & 0xFF;
         frame.data[offset + 1] = (value >> 8) & 0xFF;
 
-      //  std::cout << "[WRITE] PID " << processId << " wrote " << value
-        //    << " to page " << pageNumber << ", offset " << offset
-          //  << ", frame " << frameNumber << "\n";
+        //  std::cout << "[WRITE] PID " << processId << " wrote " << value
+        //       << " to page " << pageNumber << ", offset " << offset
+        //       << ", frame " << frameNumber << "\n";
     }
 }
 
@@ -386,7 +417,7 @@ bool MemoryManager::declareVariable(int processId, const std::string& varName, u
 
     // Check if symbol table is full (max 32 variables)
     if (procMem.symbolTable.size() >= 32) {
-      //  std::cout << "[ERROR] Symbol table full. Cannot declare more variables.\n";
+        //  std::cout << "[ERROR] Symbol table full. Cannot declare more variables.\n";
         return false;
     }
 
@@ -476,66 +507,81 @@ std::vector<uint8_t> MemoryManager::readFromBackingStore(int processId, int page
 
 // CHANGE: Memory debugging - process-smi command
 void MemoryManager::processingSmi() {
-    std::cout << "\n=========================================================================================\n";
-    std::cout << "| PROCESS-SMI 24.6.1       Driver Version: 12.0.1    CUDA Version: N/A               |\n";
+    std::lock_guard<std::mutex> lock(memoryMutex); // Single mutex
+
+    std::cout << "=========================================================================================\n";
+    std::cout << "| PROCESS-SMI 24.6.1       Driver Version: 12.0.1    CUDA Version: N/A              |\n";
     std::cout << "=========================================================================================\n";
 
     int usedMemory = getUsedMemory();
-    int freeMemory = getFreeMemory();
-
     std::cout << "| Memory Usage: " << usedMemory << " / " << maxOverallMem << " bytes";
     std::cout << std::setw(50 - std::to_string(usedMemory).length() - std::to_string(maxOverallMem).length()) << "|\n";
     std::cout << "=========================================================================================\n";
-    std::cout << "| Processes:                                                                           |\n";
+    std::cout << "| Processes:                                                                             |\n";
     std::cout << "=========================================================================================\n";
-    std::cout << "| PID   Memory Usage   Process Name                                                   |\n";
+    std::cout << "| PID   Memory Usage   Process Name                                                     |\n";
     std::cout << "=========================================================================================\n";
 
+    // CHANGE 6: Safe iteration
     for (const auto& pair : processMemoryMap) {
-        const ProcessMemory& procMem = pair.second;
-        std::cout << "| " << std::setw(5) << procMem.processId
-            << " " << std::setw(12) << procMem.allocatedMemory << " bytes"
-            << "   Process" << procMem.processId;
+        if (!isValidProcessMemory(pair.second)) {
+            continue; // Skip invalid entries
+        }
 
-        // Fill remaining space
-        std::string processInfo = "Process" + std::to_string(procMem.processId);
-        int remaining = 65 - processInfo.length();
-        std::cout << std::setw(remaining) << "|\n";
+        const ProcessMemory& procMem = pair.second;
+        std::string processName = "Process" + std::to_string(procMem.processId);
+        std::cout << "| " << std::setw(5) << procMem.processId
+            << "   " << std::setw(12) << procMem.allocatedMemory << " bytes"
+            << "   " << std::left << std::setw(45) << processName << "|\n";
     }
 
     std::cout << "=========================================================================================\n\n";
+
 }
+
 
 // CHANGE: Memory debugging - vmstat command
 void MemoryManager::vmstat() {
+    std::lock_guard<std::mutex> lock(memoryMutex); // Single mutex
+
     std::cout << "\nMemory Statistics:\n";
     std::cout << "====================\n";
     std::cout << "Total memory:     " << maxOverallMem << " bytes\n";
     std::cout << "Used memory:      " << getUsedMemory() << " bytes\n";
     std::cout << "Free memory:      " << getFreeMemory() << " bytes\n";
+
     std::cout << "\nCPU Statistics:\n";
     std::cout << "====================\n";
     std::cout << "Idle cpu ticks:   " << idleCpuTicks << "\n";
     std::cout << "Active cpu ticks: " << activeCpuTicks << "\n";
     std::cout << "Total cpu ticks:  " << totalCpuTicks << "\n";
+
     std::cout << "\nPaging Statistics:\n";
     std::cout << "====================\n";
     std::cout << "Num paged in:     " << numPagedIn << "\n";
     std::cout << "Num paged out:    " << numPagedOut << "\n";
+
     std::cout << "\nProcess Information:\n";
     std::cout << "====================\n";
 
+    // CHANGE 4: Safe iteration with validation
+    std::vector<ProcessMemory> validProcesses;
     for (const auto& pair : processMemoryMap) {
-        const ProcessMemory& procMem = pair.second;
+        if (isValidProcessMemory(pair.second)) {
+            validProcesses.push_back(pair.second);
+        }
+    }
+
+    for (const auto& procMem : validProcesses) {
         std::cout << "Process " << procMem.processId << ":\n";
         std::cout << "  Allocated: " << procMem.allocatedMemory << " bytes\n";
-        std::cout << "  Pages in memory: ";
 
         int pagesInMem = 0;
         for (const auto& page : procMem.pages) {
             if (page.inMemory) pagesInMem++;
         }
-        std::cout << pagesInMem << " / " << procMem.pages.size() << "\n";
+
+        std::cout << "  Pages in memory: " << pagesInMem << " / " << procMem.pages.size() << "\n";
 
         if (procMem.hasMemoryViolation) {
             std::cout << "  ** MEMORY VIOLATION at " << procMem.violationTime
@@ -543,13 +589,17 @@ void MemoryManager::vmstat() {
         }
     }
     std::cout << "\n";
+
+    std::cout << "\n";
 }
 
 // CHANGE: Helper methods for statistics
 int MemoryManager::getUsedMemory() const {
     int used = 0;
-    for (const auto& pair : processMemoryMap) {
-        used += pair.second.allocatedMemory;
+    for (const auto& frame : physicalFrames) {
+        if (frame.occupied) {
+            used += memPerFrame;
+        }
     }
     return used;
 }
@@ -584,36 +634,6 @@ bool MemoryManager::allocate(int processId) {
     // CHANGE: Redirect to new allocation method with default memory size
     return allocateProcess(processId, minMemPerProc);
 
-    /*
-    // Original implementation (commented out)
-    //std::cout << "[ALLOCATE] Attempting to allocate for P" << processId << "\n";
-    for (size_t i = 0; i < memory.size(); ++i) {
-        auto& block = memory[i];
-      //  std::cout << "[ALLOCATE] Inspecting block: start=" << block.start << ", size=" << block.size << ", free=" << block.free << "\n";
-        if (block.free && block.size >= memPerProc) {
-            Block allocated = { block.start, memPerProc, processId, false };
-            block.start += memPerProc;
-            block.size -= memPerProc;
-
-            if (block.size == 0) {
-                memory.erase(memory.begin() + i);
-        //        std::cout << "[ALLOCATE] Erased empty block after allocation.\n";
-            }
-            else {
-                memory[i] = block;
-          //      std::cout << "[ALLOCATE] Updated remaining block: start=" << block.start << ", size=" << block.size << "\n";
-            }
-
-            memory.insert(memory.begin() + i, allocated);
-        //    std::cout << "[ALLOCATE] Allocated block for P" << processId << ": start=" << allocated.start << ", size=" << allocated.size << "\n";
-            calculateExternalFragmentation();
-            return true;
-        }
-    }
-  //  std::cout << "[ALLOCATE] Failed to allocate for P" << processId << "\n";
-    calculateExternalFragmentation();
-    return false;
-    */
 }
 
 void MemoryManager::release(int processId) {
@@ -622,7 +642,7 @@ void MemoryManager::release(int processId) {
 
     /*
     // Original implementation (commented out)
- //   std::cout << "[RELEASE] Releasing memory for P" << processId << "\n";
+    //  std::cout << "[RELEASE] Releasing memory for P" << processId << "\n";
     for (auto& block : memory) {
         if (block.processId == processId) {
             block.free = true;
@@ -657,7 +677,7 @@ int MemoryManager::getProcessCount() const {
             seen.insert(block.processId);
         }
     }
- //   std::cout << "[COUNT] Unique processes in memory: " << seen.size() << "\n";
+  //  std::cout << "[COUNT] Unique processes in memory: " << seen.size() << "\n";
     return static_cast<int>(seen.size());
     */
 }
@@ -678,8 +698,8 @@ int MemoryManager::calculateExternalFragmentation() const {
             external += block.size;
         }
     }
-  //  std::cout << "[FRAGMENT] Total external fragmentation (for mem size "
-   //     << memPerProc << "): " << external << " bytes\n";
+    //  std::cout << "[FRAGMENT] Total external fragmentation (for mem size "
+    //        << memPerProc << "): " << external << " bytes\n";
     return external;
     */
 }
@@ -702,11 +722,16 @@ void MemoryManager::snapshot(int quantumCycle) {
     std::strftime(buf, sizeof(buf), "(%m/%d/%Y %I:%M:%S%p)", &tm_now);
 
     file << "Timestamp: " << buf << "\n";
-    file << "Number of processes in memory: " << getProcessCount() << "\n";
+    file << "Number of processes in memory: " << processMemoryMap.size() << "\n";
     file << "Total external fragmentation in bytes: " << calculateExternalFragmentation() << "\n";
 
     // CHANGE: Add paging statistics
-    file << "Pages in memory: " << (physicalFrames.size() - calculateExternalFragmentation() / memPerFrame) << " / " << physicalFrames.size() << "\n";
+    int framesInUse = 0;
+    for (const auto& frame : physicalFrames) {
+        if (frame.occupied) framesInUse++;
+    }
+
+    file << "Pages in memory: " << framesInUse << " / " << physicalFrames.size() << "\n";
     file << "Pages swapped out: " << numPagedOut << "\n\n";
 
     file << "----end---- = " << maxOverallMem << "\n";
@@ -741,13 +766,13 @@ void MemoryManager::snapshot(int quantumCycle) {
     }
 
     file << "----start---- = 0\n";
-  //  std::cout << "[SNAPSHOT] Snapshot written to " << filename.str() << "\n";
+    //  std::cout << "[SNAPSHOT] Snapshot written to " << filename.str() << "\n";
     */
 }
 
 void MemoryManager::printReport() const {
     std::cout << "\n========================================\n";
-    std::cout << "         MEMORY MANAGER REPORT         \n";
+    std::cout << "         MEMORY MANAGER REPORT          \n";
     std::cout << "========================================\n";
 
     // Memory Statistics
@@ -839,4 +864,10 @@ void MemoryManager::printReport() const {
 bool MemoryManager::isProcessAllocated(int processId) const {
     // THIS CHECKS IF THE PROCESS EXISTS IN THE MAP:
     return processMemoryMap.find(processId) != processMemoryMap.end();
+}
+
+void MemoryManager::finish() {
+    _shouldStop.store(true);
+    // Add logic here to wait for any worker threads to finish.
+    // For example, if you have a thread for dummy memory access, you would join it here.
 }

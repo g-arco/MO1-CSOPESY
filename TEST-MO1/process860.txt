@@ -1,0 +1,3 @@
+(08/03/2025 10:36:15 PM) Core:6 "Hello world from process860!"
+(08/03/2025 10:36:15 PM) Core:6 "Hello world from process860!"
+(08/03/2025 10:36:15 PM) Core:6 "Hello world from process860!"

@@ -368,3 +368,25 @@ bool ProcessManager::hasProcess(const std::string& name) {
     std::lock_guard<std::mutex> lock(processMutex);
     return processes.count(name) > 0;
 }
+
+void ProcessManager::cleanupFinishedProcesses() {
+    std::lock_guard<std::mutex> lock(processMutex);
+
+    for (auto it = processes.begin(); it != processes.end(); ) {
+        auto& screen = it->second;
+
+        if (screen->isFinished()) {
+            int pid = screen->getProcessId();  // Save before erasing
+            if (memoryManager) {
+                memoryManager->deallocateProcess(pid);
+
+            }
+            it = processes.erase(it);  // Don't access screen after this
+        }
+        else {
+            ++it;
+        }
+    }
+
+
+}

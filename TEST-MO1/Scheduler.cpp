@@ -20,6 +20,7 @@ extern Config config;
 extern std::atomic<int> activeCores;
 // CHANGE: MCO2 - Include external memory manager
 extern std::unique_ptr<MemoryManager> memoryManager;
+extern std::shared_ptr<ProcessManager> processManager;
 std::atomic<int> cpuTicks(0);
 
 class ActiveCoreGuard {
@@ -182,6 +183,7 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
 
 
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+                processManager->cleanupFinishedProcesses();
                 screen->setStatus(ProcessStatus::FINISHED);
                 screen->printLog("Process finished execution.");
 
@@ -206,10 +208,10 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
             }
 
             try {
-                /*auto timestamp = currentTimestamp();
+                auto timestamp = currentTimestamp();
                 logFile << timestamp << " Core:" << coreId
                     << " \"Hello world from " << screen->getName() << "!\"\n";
-                logFile.flush();*/
+                logFile.flush();
 
                 // CHANGE: MCO2 - Execute instruction with potential page fault handling
                 screen->executeNextInstruction();
@@ -250,6 +252,7 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
 
         if (!screen->hasError()) {
             screen->setStatus(ProcessStatus::FINISHED);
+            processManager->cleanupFinishedProcesses();
             screen->printLog("FCFS: Process completed on core " + std::to_string(coreId));
           //  std::cout << "[Scheduler][FCFS] Process '" << screen->getName()
             //    << "' finished on core " << coreId << ".\n";
@@ -320,6 +323,7 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
 
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
+                processManager->cleanupFinishedProcesses();
                 break;
             }
 
@@ -357,19 +361,6 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                     if (memoryManager) {
                         memoryManager->deallocateProcess(pid);
                     }
-                    else if (screen->getIsSleeping()) {
-                        // Process is sleeping - put it back in ready queue but mark as sleeping
-                        screen->setStatus(ProcessStatus::READY);
-                        screen->setCoreAssigned(-1);
-                        addProcess(screen); // Requeue the sleeping process
-                      //  std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
-                    }
-                    else {
-                        // Normal quantum expiration
-                        screen->setStatus(ProcessStatus::READY);
-                        screen->setCoreAssigned(-1);
-                        addProcess(screen);
-                    }
                     break;
                 }
 
@@ -399,9 +390,7 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 if (memoryManager) {
                     memoryManager->deallocateProcess(pid);
                 }
-                /* ORIGINAL CODE - commented out
-                memoryManager.release(pid); // release memory
-                */
+                processManager->cleanupFinishedProcesses();
             }
             else if (screen->getIsSleeping()) {
                 // Process is sleeping - put it back in ready queue but mark as sleeping
@@ -478,6 +467,12 @@ void Scheduler::dummyProcessLoop() {
                 /*std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";
                 break;
             }*/
+            // CHANGE: Check memory pressure before creating new processes
+            if (memoryManager && memoryManager->getUsedMemory() >= (config.maxOverallMem * 0.8)) {
+                // Memory is getting full, slow down process creation
+                std::this_thread::sleep_for(std::chrono::milliseconds(config.batchFreq * 2));
+                continue;
+            }
 
             if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);

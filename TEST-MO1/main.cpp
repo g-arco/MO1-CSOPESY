@@ -16,6 +16,8 @@ Scheduler* scheduler = nullptr;
 // The global MemoryManager object is DEFINED here.
 // This is the single place where the variable is created.
 std::unique_ptr<MemoryManager> memoryManager;
+std::shared_ptr<ProcessManager> processManager;
+
 
 void commandLoop() {
     std::string input;
@@ -45,6 +47,12 @@ void commandLoop() {
                 scheduler = nullptr;
             }
 
+            if (memoryManager != nullptr) {
+                memoryManager->finish();
+                memoryManager.reset(); // Release the unique_ptr
+            }
+
+
             try {
                 config.loadConfig("config.txt");
 
@@ -63,10 +71,11 @@ void commandLoop() {
 
                 // Use the reset() method to safely assign a new object to the unique_ptr.
                 // This is the correct way to handle unique_ptr assignment.
-                memoryManager.reset(new MemoryManager(config.maxOverallMem, config.minMemPerProc, config.maxMemPerProc, config.memPerFrame));
-
                 scheduler = new Scheduler(config);
+                processManager = std::make_shared<ProcessManager>();
                 ProcessManager::setScheduler(scheduler); // CHANGE: Set scheduler in ProcessManager
+                memoryManager = std::make_unique<MemoryManager>(config.maxOverallMem, config.minMemPerProc, config.maxMemPerProc, config.memPerFrame);
+
                 initialized = true;
 
                 std::cout << "System initialized successfully.\n\n";

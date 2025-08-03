@@ -56,28 +56,11 @@ public:
     static void createProcessWithInstructions(const std::string& name, int memorySize,
         const std::string& instructionString, const Config& config);
 
-    // Process information
-    static void showProcessInfo(const std::string& name);
-    static void showAllProcesses();
-
-    // Statistics and monitoring
-    static int getProcessCount();
-    static int getRunningProcessCount();
-    static int getWaitingProcessCount();
-    static int getFinishedProcessCount();
-
-    // Memory-related process management
-    static std::vector<std::shared_ptr<Screen>> getProcessesInMemory();
-    static std::vector<std::shared_ptr<Screen>> getProcessesInBacking();
-    static void forceKillProcess(const std::string& name);
+    
 
     // Process status utilities
-    static void updateProcessStatuses();
-    static void cleanFinishedProcesses();
+    void cleanupFinishedProcesses();
 
-    // Debug and utility functions
-    static void dumpProcessList();
-    static void validateProcessStates();
 };
 
 #endif // PROCESSMANAGER_H
