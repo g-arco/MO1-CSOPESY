@@ -153,6 +153,41 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
         }
 
         while (!screen->isFinished() && !finished.load()) {
+            if (screen->getIsSleeping()) {
+                // In FCFS, we can choose to either:
+                // Option 1: Keep the core busy-waiting (less realistic)
+                // Option 2: Release the core and requeue (more realistic)
+
+                // Option 2: Release core and requeue
+                while (screen->getIsSleeping() && !finished.load()) {
+                    screen->decrementSleepTicks();
+                    screen->checkSleepComplete();
+
+                    // Simulate CPU tick passage
+                    for (int i = 0; i < config.delayPerExec; ++i) {
+                        ++cpuTicks;
+                    }
+
+                    if (memoryManager) {
+                        memoryManager->updateCpuTicks(config.delayPerExec, 0); // Idle time
+                    }
+
+                    // Small delay to prevent busy loop
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+
+                if (screen->getIsSleeping()) {
+                    // Still sleeping, requeue and exit
+                    screen->setStatus(ProcessStatus::READY);
+                    screen->setCoreAssigned(-1);
+                    addProcess(screen);
+                    std::cout << "[FCFS] Requeued sleeping process " << screen->getName() << "\n";
+                    return;
+                }
+            }
+
+
+
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
                 screen->printLog("Process finished execution.");
@@ -185,6 +220,13 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
 
                 // CHANGE: MCO2 - Execute instruction with potential page fault handling
                 screen->executeNextInstruction();
+
+                if (screen->getIsSleeping()) {
+                    // Process started sleeping, handle in next iteration
+                    continue;
+                }
+
+
 
                 // CHANGE: MCO2 - Check for memory violations after instruction execution
                 if (screen->hasError()) {
@@ -264,10 +306,39 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         }
 
         while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
+
+            if (screen->getIsSleeping()) {
+                // Decrement sleep ticks for this execution cycle
+                screen->decrementSleepTicks();
+
+                // Check if sleep is complete
+                if (screen->checkSleepComplete()) {
+                    std::cout << "[SCHEDULER] Process " << screen->getName() << " woke up from sleep\n";
+                    // Continue execution in next cycle
+                }
+                else {
+                    // Still sleeping - use up quantum time but don't execute instruction
+                    executed++;
+
+                    // Update CPU ticks (this counts as "idle" time for the process)
+                    for (int i = 0; i < config.delayPerExec; ++i) {
+                        ++cpuTicks;
+                    }
+
+                    if (memoryManager) {
+                        memoryManager->updateCpuTicks(config.delayPerExec, 0); // All idle time
+                    }
+
+                    continue; // Skip normal instruction execution
+                }
+            }
+
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
                 break;
             }
+
+
 
             // CHANGE: MCO2 - Track idle and active CPU ticks separately
             int idleTicks = 0;
@@ -287,6 +358,12 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 // CHANGE: MCO2 - Execute instruction with potential page fault and memory violation handling
                 screen->executeNextInstruction();
 
+                if (screen->getIsSleeping()) {
+                    // Process went to sleep during execution
+                    // Don't increment executed counter - let it continue in next quantum
+                    break; // Exit quantum early
+                }
+
                 // CHANGE: MCO2 - Enhanced error handling for memory violations
                 if (screen->hasError()) {
                     handleProcessError(screen, "Memory access violation occurred during instruction execution.");
@@ -294,6 +371,19 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                     // Deallocate memory and mark as not allocated
                     if (memoryManager) {
                         memoryManager->deallocateProcess(pid);
+                    }
+                    else if (screen->getIsSleeping()) {
+                        // Process is sleeping - put it back in ready queue but mark as sleeping
+                        screen->setStatus(ProcessStatus::READY);
+                        screen->setCoreAssigned(-1);
+                        addProcess(screen); // Requeue the sleeping process
+                        std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
+                    }
+                    else {
+                        // Normal quantum expiration
+                        screen->setStatus(ProcessStatus::READY);
+                        screen->setCoreAssigned(-1);
+                        addProcess(screen);
                     }
                     memoryAllocated[pid] = false;
                     break;
@@ -330,6 +420,13 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 memoryManager.release(pid); // release memory
                 */
                 memoryAllocated[pid] = false;
+            }
+            else if (screen->getIsSleeping()) {
+                // Process is sleeping - put it back in ready queue but mark as sleeping
+                screen->setStatus(ProcessStatus::READY);
+                screen->setCoreAssigned(-1);
+                addProcess(screen); // Requeue the sleeping process
+                std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
             }
             else {
                 screen->setStatus(ProcessStatus::READY);

@@ -40,6 +40,10 @@ private:
     // Original memory map (kept for compatibility but will be superseded)
     std::map<std::string, int> memory;
 
+    bool isSleeping;
+    int sleepRemainingTicks;
+    int sleepStartTick;
+
     bool errorFlag;
     int processId;
 
@@ -53,6 +57,9 @@ private:
     int resolveValue(const std::string& token);
     void assignCoreIfUnassigned(int totalCores);
     void updateTimestamp();
+
+    bool hasMemoryError = false;
+    std::map<std::string, uint16_t> variables;
 
 public:
     Screen();
@@ -98,6 +105,14 @@ public:
     }
     std::string getErrorMessage() const { return errorMessage; }
     std::string getErrorTimestamp() const { return errorTimestamp; }
+
+    bool checkSleepComplete();
+
+    bool getIsSleeping() const { return isSleeping; }
+    int getSleepRemainingTicks() const { return sleepRemainingTicks; }
+    void setSleeping(bool sleeping) { isSleeping = sleeping; }
+    void setSleepRemainingTicks(int ticks) { sleepRemainingTicks = ticks; }
+    void decrementSleepTicks() { if (sleepRemainingTicks > 0) sleepRemainingTicks--; }
 };
 
 #endif

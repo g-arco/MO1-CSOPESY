@@ -1,5 +1,6 @@
 #include "Screen.h"
 #include "MemoryManager.h"  // CHANGE: Include for memory operations
+#include "Scheduler.h"  
 #include <iostream>
 #include <chrono>
 #include <ctime>
@@ -20,7 +21,7 @@ bool scheduled = false;
 Screen::Screen()
     : name("default"), instructionPointer(0),
     status(ProcessStatus::READY), coreAssigned(-1), errorFlag(false), processId(0),
-    allocatedMemorySize(0)  // CHANGE: Initialize new member
+    allocatedMemorySize(0), isSleeping(false), sleepRemainingTicks(0), sleepStartTick(0) // CHANGE: Initialize new member
 {
     updateTimestamp();
     instructions.clear();
@@ -73,6 +74,10 @@ void Screen::executeNextInstruction() {
         return;
     }
 
+    if (hasMemoryError) {
+        return; // Don't execute if there's an error
+    }
+
     const Instruction& instr = instructions[instructionPointer];
 
     try {
@@ -81,32 +86,116 @@ void Screen::executeNextInstruction() {
             auto now = std::chrono::system_clock::now();
             std::time_t tnow = std::chrono::system_clock::to_time_t(now);
             std::tm localTime{};
-#ifdef _WIN32
+    #ifdef _WIN32
             localtime_s(&localTime, &tnow);
-#else
+    #else
             localtime_r(&tnow, &localTime);
-#endif
+    #endif
             char timeBuf[40];
             std::strftime(timeBuf, sizeof(timeBuf), "(%m/%d/%Y %I:%M:%S%p)", &localTime);
 
+            // Enhanced PRINT processing to handle variable concatenation
+            std::string printExpression = instr.args[0];
+            std::string finalOutput;
+
+            // Process the expression to handle string concatenation with variables
+            // Example: "Variable A: " + varA becomes "Variable A: 15"
+
+            size_t pos = 0;
+            while (pos < printExpression.length()) {
+                // Look for quoted strings
+                if (printExpression[pos] == '"') {
+                    size_t endQuote = printExpression.find('"', pos + 1);
+                    if (endQuote != std::string::npos) {
+                        // Extract the quoted string (without quotes)
+                        std::string quotedText = printExpression.substr(pos + 1, endQuote - pos - 1);
+                        finalOutput += quotedText;
+                        pos = endQuote + 1;
+
+                        // Skip whitespace and potential '+' operator
+                        while (pos < printExpression.length() &&
+                            (printExpression[pos] == ' ' || printExpression[pos] == '\t' || printExpression[pos] == '+')) {
+                            pos++;
+                        }
+                    }
+                    else {
+                        pos++;
+                    }
+                }
+                // Look for variable names (not in quotes)
+                else if (std::isalpha(printExpression[pos]) || printExpression[pos] == '_') {
+                    size_t varStart = pos;
+                    while (pos < printExpression.length() &&
+                        (std::isalnum(printExpression[pos]) || printExpression[pos] == '_')) {
+                        pos++;
+                    }
+
+                    std::string varName = printExpression.substr(varStart, pos - varStart);
+
+                    // Get variable value
+                    uint16_t varValue = 0;
+                    if (memoryManager) {
+                        varValue = memoryManager->getVariable(processId, varName);
+                    }
+                    else {
+                        // Fallback to local memory
+                        if (memory.count(varName)) {
+                            varValue = memory[varName];
+                        }
+                    }
+
+                    finalOutput += std::to_string(varValue);
+
+                    // Skip whitespace and potential '+' operator
+                    while (pos < printExpression.length() &&
+                        (printExpression[pos] == ' ' || printExpression[pos] == '\t' || printExpression[pos] == '+')) {
+                        pos++;
+                    }
+                }
+                else {
+                    pos++;
+                }
+            }
+
+            // If no processing occurred, use the original expression
+            if (finalOutput.empty()) {
+                finalOutput = printExpression;
+
+                // Remove quotes if it's a simple quoted string
+                if (finalOutput.length() >= 2 && finalOutput.front() == '"' && finalOutput.back() == '"') {
+                    finalOutput = finalOutput.substr(1, finalOutput.length() - 2);
+                }
+            }
+
             std::stringstream ss;
-            ss << timeBuf << " Core:" << getCoreAssigned() << " \"" << instr.args[0] << "\"";
+            ss << timeBuf << " Core:" << getCoreAssigned() << " \"" << finalOutput << "\"";
             std::string logEntry = ss.str();
 
             std::ofstream logFile(name + ".log", std::ios::app);
             if (logFile.is_open()) {
                 logFile << logEntry << "\n";
+                logFile.flush();
             }
+
+            // Also print to console for immediate feedback
+            std::cout << "[PRINT] " << name << ": " << finalOutput << std::endl;
         }
+
         else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
-            try {
-                int duration = std::stoi(instr.args[0]);
-                std::this_thread::sleep_for(std::chrono::seconds(duration));
-            }
-            catch (...) {
-                std::cerr << "[ERROR] Invalid sleep duration: " << instr.args[0] << "\n";
-                errorFlag = true;
-            }
+            int sleepDuration = std::stoi(instr.args[0]);
+            // Convert sleep duration to CPU ticks
+            // If sleep duration is in seconds, multiply by some tick rate
+            // Or treat the value directly as CPU ticks
+            int sleepTicks = sleepDuration; // Treat as direct CPU tick count
+
+            // Set the process to sleeping state
+            isSleeping = true;
+            sleepRemainingTicks = sleepTicks;
+            sleepStartTick = cpuTicks; // Current global CPU tick
+
+            printLog("SLEEP " + std::to_string(sleepDuration) + " ticks - process going to sleep");
+            std::cout << "[SLEEP] Process " << name << " going to sleep for " << sleepTicks << " ticks\n";
+
         }
         else if (instr.type == InstructionType::DECLARE && instr.args.size() == 2) {
             const std::string& varName = instr.args[0];
@@ -136,21 +225,33 @@ void Screen::executeNextInstruction() {
         else if (instr.type == InstructionType::ADD && instr.args.size() == 3) {
             const std::string& var1 = instr.args[0];
             try {
-                int op1 = resolveValue(instr.args[1]);
-                int op2 = resolveValue(instr.args[2]);
-                uint16_t result = static_cast<uint16_t>(op1 + op2);
+                if (instr.args.size() >= 3) {
+                    std::string dest = instr.args[0];
+                    std::string op1 = instr.args[1];
+                    std::string op2 = instr.args[2];
 
-                // CHANGE: Use memory manager for variable storage
-                if (memoryManager) {
-                    memoryManager->setVariable(processId, var1, result);
-                }
-                else {
-                    // Fallback to original implementation
-                    if (!memory.count(var1)) memory[var1] = 0;
-                    memory[var1] = result;
-                }
+                    uint16_t val1, val2;
 
-                printLog("ADD " + var1 + " = " + std::to_string(op1) + " + " + std::to_string(op2) + " = " + std::to_string(result));
+                    // Get values (may cause page faults)
+                    if (memoryManager) {
+                        val1 = memoryManager->getVariable(processId, op1);
+                        val2 = memoryManager->getVariable(processId, op2);
+
+                        uint16_t result = val1 + val2;
+                        if (!memoryManager->declareVariable(processId, dest, result)) {
+                            setError(true);
+                            errorMessage = "Failed to store ADD result: page fault or memory violation";
+                            return;
+                        }
+                    }
+                    else {
+                        val1 = variables[op1];
+                        val2 = variables[op2];
+                        variables[dest] = val1 + val2;
+                    }
+
+                    printLog("ADD " + dest + " = " + std::to_string(val1) + " + " + std::to_string(val2) + " = " + std::to_string(val1 + val2));
+                }
             }
             catch (const std::exception& e) {
                 std::cerr << "[ERROR] Invalid ADD operands: " << e.what() << "\n";
@@ -160,21 +261,32 @@ void Screen::executeNextInstruction() {
         else if (instr.type == InstructionType::SUBTRACT && instr.args.size() == 3) {
             const std::string& var1 = instr.args[0];
             try {
-                int op1 = resolveValue(instr.args[1]);
-                int op2 = resolveValue(instr.args[2]);
-                uint16_t result = static_cast<uint16_t>(op1 - op2);
+                if (instr.args.size() >= 3) {
+                    std::string dest = instr.args[0];
+                    std::string op1 = instr.args[1];
+                    std::string op2 = instr.args[2];
 
-                // CHANGE: Use memory manager for variable storage
-                if (memoryManager) {
-                    memoryManager->setVariable(processId, var1, result);
-                }
-                else {
-                    // Fallback to original implementation
-                    if (!memory.count(var1)) memory[var1] = 0;
-                    memory[var1] = result;
-                }
+                    uint16_t val1, val2;
 
-                printLog("SUBTRACT " + var1 + " = " + std::to_string(op1) + " - " + std::to_string(op2) + " = " + std::to_string(result));
+                    if (memoryManager) {
+                        val1 = memoryManager->getVariable(processId, op1);
+                        val2 = memoryManager->getVariable(processId, op2);
+
+                        uint16_t result = val1 - val2;
+                        if (!memoryManager->declareVariable(processId, dest, result)) {
+                            setError(true);
+                            errorMessage = "Failed to store SUBTRACT result: page fault or memory violation";
+                            return;
+                        }
+                    }
+                    else {
+                        val1 = variables[op1];
+                        val2 = variables[op2];
+                        variables[dest] = val1 - val2;
+                    }
+
+                    printLog("SUBTRACT " + dest + " = " + std::to_string(val1) + " - " + std::to_string(val2) + " = " + std::to_string(val1 - val2));
+                }
             }
             catch (const std::exception& e) {
                 std::cerr << "[ERROR] Invalid SUBTRACT operands: " << e.what() << "\n";
@@ -183,27 +295,54 @@ void Screen::executeNextInstruction() {
         }
         // CHANGE: New READ instruction implementation
         else if (instr.type == InstructionType::READ && instr.args.size() == 2) {
-            const std::string& varName = instr.args[0];
-            const std::string& addressStr = instr.args[1];
-
+          
             try {
-                // Parse hexadecimal address
-                uint32_t address;
-                if (addressStr.substr(0, 2) == "0x" || addressStr.substr(0, 2) == "0X") {
-                    address = std::stoul(addressStr, nullptr, 16);
-                }
-                else {
-                    address = std::stoul(addressStr, nullptr, 10);
-                }
+                if (instr.args.size() >= 2) {
+                    std::string varName = instr.args[0];
+                    std::string addrStr = instr.args[1];
 
-                if (memoryManager) {
-                    uint16_t value = memoryManager->readMemory(processId, address);
-                    memoryManager->setVariable(processId, varName, value);
-                    printLog("READ " + varName + " from " + addressStr + " = " + std::to_string(value));
-                }
-                else {
-                    std::cerr << "[ERROR] Memory manager not initialized\n";
-                    errorFlag = true;
+                    // Parse address (hex format)
+                    uint32_t address;
+                    if (addrStr.substr(0, 2) == "0x" || addrStr.substr(0, 2) == "0X") {
+                        address = static_cast<uint32_t>(std::stoul(addrStr, nullptr, 16));
+                    }
+                    else {
+                        address = static_cast<uint32_t>(std::stoul(addrStr));
+                    }
+
+                    if (memoryManager) {
+                        try {
+                            // This may cause page fault - memory manager should handle it
+                            uint16_t value = memoryManager->readMemory(processId, address);
+
+                            // Store the read value in variable (may also cause page fault)
+                            if (!memoryManager->declareVariable(processId, varName, value)) {
+                                setError(true);
+                                errorMessage = "Failed to store READ result: symbol table page fault";
+                                return;
+                            }
+
+                            printLog("READ " + varName + " from address " + addrStr + " = " + std::to_string(value));
+                        }
+                        catch (const std::exception& e) {
+                            // Check if it's a memory violation or a page fault
+                            if (memoryManager->hasProcessViolation(processId)) {
+                                setError(true);
+                                errorMessage = "Memory access violation at address " + addrStr;
+                                return;
+                            }
+                            else {
+                                // This should be a page fault - retry the instruction
+                                // Don't increment currentInstruction
+                                printLog("Page fault during READ at address " + addrStr + " - retrying");
+                                return;
+                            }
+                        }
+                    }
+                    else {
+                        variables[varName] = 0; // Fallback
+                        printLog("READ " + varName + " from address " + addrStr + " = 0 (no memory manager)");
+                    }
                 }
             }
             catch (const std::exception& e) {
@@ -232,37 +371,61 @@ void Screen::executeNextInstruction() {
 
             try {
                 // Parse hexadecimal address
-                uint32_t address;
-                if (addressStr.substr(0, 2) == "0x" || addressStr.substr(0, 2) == "0X") {
-                    address = std::stoul(addressStr, nullptr, 16);
-                }
-                else {
-                    address = std::stoul(addressStr, nullptr, 10);
-                }
+                if (instr.args.size() >= 2) {
+                    std::string addrStr = instr.args[0];
+                    std::string valueStr = instr.args[1];
 
-                // Parse value (could be variable name or literal)
-                uint16_t value;
-                if (isNumber(valueStr)) {
-                    value = static_cast<uint16_t>(std::stoi(valueStr));
-                }
-                else {
-                    // It's a variable name
-                    if (memoryManager) {
-                        value = memoryManager->getVariable(processId, valueStr);
+                    // Parse address
+                    uint32_t address;
+                    if (addrStr.substr(0, 2) == "0x" || addrStr.substr(0, 2) == "0X") {
+                        address = static_cast<uint32_t>(std::stoul(addrStr, nullptr, 16));
                     }
                     else {
-                        value = memory.count(valueStr) ? memory[valueStr] : 0;
+                        address = static_cast<uint32_t>(std::stoul(addrStr));
+                    }
+
+                    // Parse value (could be variable name or literal)
+                    uint16_t value;
+                    if (std::isdigit(valueStr[0]) || valueStr[0] == '-') {
+                        value = static_cast<uint16_t>(std::stoi(valueStr));
+                    }
+                    else {
+                        // It's a variable name
+                        if (memoryManager) {
+                            value = memoryManager->getVariable(processId, valueStr);
+                        }
+                        else {
+                            value = variables[valueStr];
+                        }
+                    }
+
+                    if (memoryManager) {
+                        try {
+                            // This may cause page fault - memory manager should handle it
+                            memoryManager->writeMemory(processId, address, value);
+                            printLog("WRITE " + std::to_string(value) + " to address " + addrStr);
+                        }
+                        catch (const std::exception& e) {
+                            // Check if it's a memory violation or a page fault
+                            if (memoryManager->hasProcessViolation(processId)) {
+                                setError(true);
+                                errorMessage = "Memory access violation at address " + addrStr;
+                                return;
+                            }
+                            else {
+                                // This should be a page fault - retry the instruction
+                                printLog("Page fault during WRITE at address " + addrStr + " - retrying");
+                                return;
+                            }
+                        }
+                    }
+                    else {
+                        printLog("WRITE " + std::to_string(value) + " to address " + addrStr + " (no memory manager)");
                     }
                 }
 
-                if (memoryManager) {
-                    memoryManager->writeMemory(processId, address, value);
-                    printLog("WRITE " + std::to_string(value) + " to " + addressStr);
-                }
-                else {
-                    std::cerr << "[ERROR] Memory manager not initialized\n";
-                    errorFlag = true;
-                }
+
+
             }
             catch (const std::exception& e) {
                 std::cerr << "[ERROR] Memory access violation: " << e.what() << "\n";
@@ -588,4 +751,22 @@ std::string Screen::getStatusString() const {
     case ProcessStatus::FINISHED: return "FINISHED";
     default: return "UNKNOWN";
     }
+}
+
+bool Screen::checkSleepComplete(){
+    if (!isSleeping) return true;
+
+    if (sleepRemainingTicks <= 0) {
+        isSleeping = false;
+        sleepRemainingTicks = 0;
+
+        // Now advance the instruction pointer since sleep is complete
+        instructionPointer++;
+
+        printLog("SLEEP completed - process waking up");
+        std::cout << "[SLEEP] Process " << name << " waking up from sleep\n";
+        return true;
+    }
+
+    return false;
 }

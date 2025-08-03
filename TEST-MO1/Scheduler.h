@@ -82,4 +82,6 @@ public:
     }
 };
 
+extern std::atomic<int> cpuTicks;
+
 #endif // SCHEDULER_H

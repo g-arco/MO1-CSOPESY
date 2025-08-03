@@ -63,14 +63,14 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
                                    // CHANGE: Add READ/WRITE instruction generation
         case InstructionType::READ: {
             std::string var = variables[rand() % variables.size()];
-            uint32_t addr = 0x1000 + (rand() % 16) * 0x100;
+            uint32_t addr = 0x500 + (rand() % 16) * 0x100;
             std::ostringstream oss;
             oss << "0x" << std::hex << addr;
             instr.args = { var, oss.str() };
             break;
         }
         case InstructionType::WRITE: {
-            uint32_t addr = 0x1000 + (rand() % 16) * 0x100;
+            uint32_t addr = 0x500 + (rand() % 16) * 0x100;
             std::ostringstream oss;
             oss << "0x" << std::hex << addr;
             int value = rand() % 100 + 1;
@@ -206,18 +206,25 @@ std::vector<Instruction> ProcessManager::parseInstructionString(const std::strin
             instr.args = { addr, value };
         }
         else if (command == "PRINT") {
-            instr.type = InstructionType::PRINT;
             std::string remaining;
             std::getline(instrStream, remaining);
-            // Remove quotes if present
-            if (!remaining.empty() && remaining[0] == '(') {
-                size_t start = remaining.find('"');
-                size_t end = remaining.rfind('"');
-                if (start != std::string::npos && end != std::string::npos && start < end) {
-                    remaining = remaining.substr(start + 1, end - start - 1);
+
+            // Remove leading whitespace
+            remaining.erase(0, remaining.find_first_not_of(" \t"));
+
+            // Enhanced PRINT parsing to handle parentheses and quotes
+            if (!remaining.empty()) {
+                // Remove outer parentheses if present: PRINT("text")
+                if (remaining.front() == '(' && remaining.back() == ')') {
+                    remaining = remaining.substr(1, remaining.length() - 2);
                 }
+
+                // Store the entire expression for later processing
+                instr.args = { remaining };
             }
-            instr.args = { remaining };
+            else {
+                instr.args = { "Hello World" }; // Default message
+            }
         }
         else if (command == "SLEEP") {
             instr.type = InstructionType::SLEEP;

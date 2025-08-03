@@ -205,11 +205,21 @@ int MemoryManager::getOffsetInPage(uint32_t address) {
     return address % memPerFrame;
 }
 
-// CHANGE: Read memory with demand paging
 uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
-    if (!isValidAddress(processId, address)) {
-        // CHANGE: Record memory violation
-        auto& procMem = processMemoryMap[processId];
+    std::cout << "[READ] PID " << processId << " reading from 0x"
+        << std::hex << address << std::dec << "\n";
+
+    auto it = processMemoryMap.find(processId);
+    if (it == processMemoryMap.end()) {
+        std::cerr << "[READ] ERROR: Process " << processId << " not found in memory manager.\n";
+        throw std::runtime_error("Process not found in memory manager");
+    }
+
+    if (address >= it->second.allocatedMemory) {
+        std::cerr << "[READ] MEMORY VIOLATION: PID " << processId
+            << " tried to read 0x" << std::hex << address << std::dec << "\n";
+
+        auto& procMem = it->second;
         procMem.hasMemoryViolation = true;
 
         auto now = std::time(nullptr);
@@ -232,19 +242,20 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
 
     int pageNumber = getPageNumber(address);
     int offset = getOffsetInPage(address);
+    ProcessMemory& procMem = it->second;
 
-    ProcessMemory& procMem = processMemoryMap[processId];
-
-    // Check if page is in memory
     if (!procMem.pages[pageNumber].inMemory) {
-        // Page fault - load page
+        std::cout << "[PAGE FAULT] PID " << processId << " reading page " << pageNumber
+            << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
+
+        if (!procMem.pages[pageNumber].inMemory) {
+            std::cerr << "[READ] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
+            throw std::runtime_error("Failed to bring page into memory after page fault");
+        }
     }
 
-    // Update access time
     procMem.pages[pageNumber].lastAccessed = ++globalTime;
-
-    // Read from frame
     int frameNumber = procMem.pages[pageNumber].frameNumber;
     Frame& frame = physicalFrames[frameNumber];
 
@@ -253,14 +264,29 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
         value = (frame.data[offset + 1] << 8) | frame.data[offset];
     }
 
+    std::cout << "[READ] PID " << processId << " value at 0x"
+        << std::hex << address << ": " << value << std::dec << "\n";
+
     return value;
 }
 
-// CHANGE: Write memory with demand paging
+
+
 void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value) {
-    if (!isValidAddress(processId, address)) {
-        // CHANGE: Record memory violation
-        auto& procMem = processMemoryMap[processId];
+    std::cout << "[WRITE] PID " << processId << " writing " << value << " to 0x"
+        << std::hex << address << std::dec << "\n";
+
+    auto it = processMemoryMap.find(processId);
+    if (it == processMemoryMap.end()) {
+        std::cerr << "[WRITE] ERROR: Process " << processId << " not found in memory manager.\n";
+        throw std::runtime_error("Process not found in memory manager");
+    }
+
+    if (address >= it->second.allocatedMemory) {
+        std::cerr << "[WRITE] MEMORY VIOLATION: PID " << processId
+            << " tried to write 0x" << std::hex << address << std::dec << "\n";
+
+        auto& procMem = it->second;
         procMem.hasMemoryViolation = true;
 
         auto now = std::time(nullptr);
@@ -283,26 +309,32 @@ void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value)
 
     int pageNumber = getPageNumber(address);
     int offset = getOffsetInPage(address);
+    ProcessMemory& procMem = it->second;
 
-    ProcessMemory& procMem = processMemoryMap[processId];
-
-    // Check if page is in memory
     if (!procMem.pages[pageNumber].inMemory) {
-        // Page fault - load page
+        std::cout << "[PAGE FAULT] PID " << processId << " writing page " << pageNumber
+            << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
+
+        if (!procMem.pages[pageNumber].inMemory) {
+            std::cerr << "[WRITE] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
+            throw std::runtime_error("Failed to bring page into memory after page fault");
+        }
     }
 
-    // Update access time and mark as dirty
     procMem.pages[pageNumber].lastAccessed = ++globalTime;
     procMem.pages[pageNumber].dirty = true;
 
-    // Write to frame
     int frameNumber = procMem.pages[pageNumber].frameNumber;
     Frame& frame = physicalFrames[frameNumber];
 
     if (offset + 1 < frame.data.size()) {
         frame.data[offset] = value & 0xFF;
         frame.data[offset + 1] = (value >> 8) & 0xFF;
+
+        std::cout << "[WRITE] PID " << processId << " wrote " << value
+            << " to page " << pageNumber << ", offset " << offset
+            << ", frame " << frameNumber << "\n";
     }
 }
 
@@ -319,6 +351,18 @@ bool MemoryManager::declareVariable(int processId, const std::string& varName, u
         return false;
     }
 
+    // Simulate symbol table access - this could cause a page fault
+    // For simplicity, assume symbol table is in first page
+    if (!procMem.pages.empty() && !procMem.pages[0].inMemory) {
+        std::cout << "[PAGE FAULT] Symbol table access for process " << processId << "\n";
+        pageIn(processId, 0);
+
+        if (!procMem.pages[0].inMemory) {
+            std::cout << "[ERROR] Failed to page in symbol table\n";
+            return false;
+        }
+    }
+
     procMem.symbolTable[varName] = value;
     return true;
 }
@@ -327,7 +371,15 @@ uint16_t MemoryManager::getVariable(int processId, const std::string& varName) {
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) return 0;
 
-    auto& symbolTable = it->second.symbolTable;
+    ProcessMemory& procMem = it->second;
+
+    // Simulate symbol table access - this could cause a page fault
+    if (!procMem.pages.empty() && !procMem.pages[0].inMemory) {
+        std::cout << "[PAGE FAULT] Symbol table access for process " << processId << "\n";
+        pageIn(processId, 0);
+    }
+
+    auto& symbolTable = procMem.symbolTable;
     auto varIt = symbolTable.find(varName);
     return (varIt != symbolTable.end()) ? varIt->second : 0;
 }
