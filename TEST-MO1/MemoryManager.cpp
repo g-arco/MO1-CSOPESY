@@ -48,6 +48,14 @@ MemoryManager::~MemoryManager() {
 
 // CHANGE: New method to allocate process with specific memory size
 bool MemoryManager::allocateProcess(int processId, int memorySize) {
+    std::lock_guard<std::mutex> lock(memoryMutex);
+
+    int currentUsed = getUsedMemory();
+    if (currentUsed + memorySize > maxOverallMem) {
+        //std::cout << "Insufficient system memory for allocation\n";
+        return false;
+    }
+
     // Validate memory size (must be power of 2, within range)
     if (memorySize < 64 || memorySize > 65536) {
         std::cout << "Invalid memory allocation: size must be between 64 and 65536 bytes\n";
@@ -77,15 +85,17 @@ bool MemoryManager::allocateProcess(int processId, int memorySize) {
     }
 
     processMemoryMap[processId] = procMem;
-    std::cout << "[MEMORY] Allocated " << memorySize << " bytes (" << numPages << " pages) for process " << processId << "\n";
+   // std::cout << "[MEMORY] Allocated " << memorySize << " bytes (" << numPages << " pages) for process " << processId << "\n";
     return true;
 }
 
 // CHANGE: New method to deallocate process memory
 void MemoryManager::deallocateProcess(int processId) {
+    std::lock_guard<std::mutex> lock(memoryMutex);
+
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) {
-        return;
+        return;  // Process not found, return early
     }
 
     ProcessMemory& procMem = it->second;
@@ -100,7 +110,7 @@ void MemoryManager::deallocateProcess(int processId) {
     }
 
     processMemoryMap.erase(it);
-    std::cout << "[MEMORY] Deallocated memory for process " << processId << "\n";
+   // std::cout << "[MEMORY] Deallocated memory for process " << processId << "\n";
 }
 
 // CHANGE: Demand paging - find free frame
@@ -152,12 +162,15 @@ void MemoryManager::pageIn(int processId, int pageNumber) {
     physicalFrames[frameNumber].data = pageData;
 
     // Update page table
-    processMemoryMap[processId].pages[pageNumber].inMemory = true;
-    processMemoryMap[processId].pages[pageNumber].frameNumber = frameNumber;
-    processMemoryMap[processId].pages[pageNumber].lastAccessed = ++globalTime;
+    auto it = processMemoryMap.find(processId);
+    if (it != processMemoryMap.end()) {
+        it->second.pages[pageNumber].inMemory = true;
+        it->second.pages[pageNumber].frameNumber = frameNumber;
+        it->second.pages[pageNumber].lastAccessed = ++globalTime;
+    }
 
     numPagedIn++;
-    std::cout << "[PAGING] Paged in: Process " << processId << ", Page " << pageNumber << " -> Frame " << frameNumber << "\n";
+    //std::cout << "[PAGING] Paged in: Process " << processId << ", Page " << pageNumber << " -> Frame " << frameNumber << "\n";
 }
 
 // CHANGE: Page out operation
@@ -168,15 +181,28 @@ void MemoryManager::pageOut(int frameNumber) {
     int processId = frame.processId;
     int pageNumber = frame.pageNumber;
 
+    // Find the process in the map
+    auto it = processMemoryMap.find(processId);
+    if (it == processMemoryMap.end()) {
+        // Process not found, just free the frame
+        frame.occupied = false;
+        frame.processId = -1;
+        frame.pageNumber = -1;
+        return;
+    }
+
+    ProcessMemory& procMem = it->second;
+
     // Write to backing store if dirty
-    ProcessMemory& procMem = processMemoryMap[processId];
-    if (procMem.pages[pageNumber].dirty) {
+    if (pageNumber < procMem.pages.size() && procMem.pages[pageNumber].dirty) {
         writeToBackingStore(processId, pageNumber, frame.data);
     }
 
     // Update page table
-    procMem.pages[pageNumber].inMemory = false;
-    procMem.pages[pageNumber].frameNumber = -1;
+    if (pageNumber < procMem.pages.size()) {
+        procMem.pages[pageNumber].inMemory = false;
+        procMem.pages[pageNumber].frameNumber = -1;
+    }
 
     // Free frame
     frame.occupied = false;
@@ -184,7 +210,7 @@ void MemoryManager::pageOut(int frameNumber) {
     frame.pageNumber = -1;
 
     numPagedOut++;
-    std::cout << "[PAGING] Paged out: Process " << processId << ", Page " << pageNumber << " from Frame " << frameNumber << "\n";
+   // std::cout << "[PAGING] Paged out: Process " << processId << ", Page " << pageNumber << " from Frame " << frameNumber << "\n";
 }
 
 // CHANGE: Memory access validation
@@ -206,18 +232,23 @@ int MemoryManager::getOffsetInPage(uint32_t address) {
 }
 
 uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
-    std::cout << "[READ] PID " << processId << " reading from 0x"
-        << std::hex << address << std::dec << "\n";
+  //  std::cout << "[READ] PID " << processId << " reading from 0x"
+    //    << std::hex << address << std::dec << "\n";
+
+    std::lock_guard<std::mutex> lock(memoryMutex);  // Add thread safety
 
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) {
-        std::cerr << "[READ] ERROR: Process " << processId << " not found in memory manager.\n";
-        throw std::runtime_error("Process not found in memory manager");
+        // std::cerr << "[READ] ERROR: Process " << processId << " not found in memory manager.\n";
+        // throw std::runtime_error("Process not found in memory manager");
+        // CRITICAL: Don't continue execution after this point!
     }
 
+    ProcessMemory& procMem = it->second;  // Safe to access now
+
     if (address >= it->second.allocatedMemory) {
-        std::cerr << "[READ] MEMORY VIOLATION: PID " << processId
-            << " tried to read 0x" << std::hex << address << std::dec << "\n";
+       // std::cerr << "[READ] MEMORY VIOLATION: PID " << processId
+         //   << " tried to read 0x" << std::hex << address << std::dec << "\n";
 
         auto& procMem = it->second;
         procMem.hasMemoryViolation = true;
@@ -242,16 +273,15 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
 
     int pageNumber = getPageNumber(address);
     int offset = getOffsetInPage(address);
-    ProcessMemory& procMem = it->second;
 
     if (!procMem.pages[pageNumber].inMemory) {
-        std::cout << "[PAGE FAULT] PID " << processId << " reading page " << pageNumber
-            << " (addr 0x" << std::hex << address << std::dec << ")\n";
+        //std::cout << "[PAGE FAULT] PID " << processId << " reading page " << pageNumber
+       //     << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
 
         if (!procMem.pages[pageNumber].inMemory) {
-            std::cerr << "[READ] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
-            throw std::runtime_error("Failed to bring page into memory after page fault");
+          //  std::cerr << "[READ] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
+           // throw std::runtime_error("Failed to bring page into memory after page fault");
         }
     }
 
@@ -264,8 +294,8 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
         value = (frame.data[offset + 1] << 8) | frame.data[offset];
     }
 
-    std::cout << "[READ] PID " << processId << " value at 0x"
-        << std::hex << address << ": " << value << std::dec << "\n";
+    //std::cout << "[READ] PID " << processId << " value at 0x"
+      //  << std::hex << address << ": " << value << std::dec << "\n";
 
     return value;
 }
@@ -273,18 +303,24 @@ uint16_t MemoryManager::readMemory(int processId, uint32_t address) {
 
 
 void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value) {
-    std::cout << "[WRITE] PID " << processId << " writing " << value << " to 0x"
-        << std::hex << address << std::dec << "\n";
+   // std::cout << "[WRITE] PID " << processId << " writing " << value << " to 0x"
+     //   << std::hex << address << std::dec << "\n";
+
+    std::lock_guard<std::mutex> lock(memoryMutex);  // Add thread safety
 
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) {
-        std::cerr << "[WRITE] ERROR: Process " << processId << " not found in memory manager.\n";
-        throw std::runtime_error("Process not found in memory manager");
+        // std::cerr << "[WRITE] ERROR: Process " << processId << " not found in memory manager.\n";
+        //throw std::runtime_error("Process not found in memory manager");
+        // CRITICAL: Don't continue execution after this point!
     }
 
+    ProcessMemory& procMem = it->second;  // Safe to access now
+
+
     if (address >= it->second.allocatedMemory) {
-        std::cerr << "[WRITE] MEMORY VIOLATION: PID " << processId
-            << " tried to write 0x" << std::hex << address << std::dec << "\n";
+      //  std::cerr << "[WRITE] MEMORY VIOLATION: PID " << processId
+        //    << " tried to write 0x" << std::hex << address << std::dec << "\n";
 
         auto& procMem = it->second;
         procMem.hasMemoryViolation = true;
@@ -309,16 +345,15 @@ void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value)
 
     int pageNumber = getPageNumber(address);
     int offset = getOffsetInPage(address);
-    ProcessMemory& procMem = it->second;
 
     if (!procMem.pages[pageNumber].inMemory) {
-        std::cout << "[PAGE FAULT] PID " << processId << " writing page " << pageNumber
-            << " (addr 0x" << std::hex << address << std::dec << ")\n";
+        //std::cout << "[PAGE FAULT] PID " << processId << " writing page " << pageNumber
+          //  << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
 
         if (!procMem.pages[pageNumber].inMemory) {
-            std::cerr << "[WRITE] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
-            throw std::runtime_error("Failed to bring page into memory after page fault");
+         //   std::cerr << "[WRITE] ERROR: Page " << pageNumber << " still not in memory after pageIn.\n";
+           // throw std::runtime_error("Failed to bring page into memory after page fault");
         }
     }
 
@@ -332,33 +367,38 @@ void MemoryManager::writeMemory(int processId, uint32_t address, uint16_t value)
         frame.data[offset] = value & 0xFF;
         frame.data[offset + 1] = (value >> 8) & 0xFF;
 
-        std::cout << "[WRITE] PID " << processId << " wrote " << value
-            << " to page " << pageNumber << ", offset " << offset
-            << ", frame " << frameNumber << "\n";
+      //  std::cout << "[WRITE] PID " << processId << " wrote " << value
+        //    << " to page " << pageNumber << ", offset " << offset
+          //  << ", frame " << frameNumber << "\n";
     }
 }
 
 // CHANGE: Variable management methods
 bool MemoryManager::declareVariable(int processId, const std::string& varName, uint16_t value) {
+    std::lock_guard<std::mutex> lock(memoryMutex);
+
     auto it = processMemoryMap.find(processId);
-    if (it == processMemoryMap.end()) return false;
+    if (it == processMemoryMap.end()) {
+        return false;  // Return early if process not found
+    }
 
     ProcessMemory& procMem = it->second;
 
     // Check if symbol table is full (max 32 variables)
     if (procMem.symbolTable.size() >= 32) {
-        std::cout << "[ERROR] Symbol table full. Cannot declare more variables.\n";
+      //  std::cout << "[ERROR] Symbol table full. Cannot declare more variables.\n";
         return false;
     }
 
-    // Simulate symbol table access - this could cause a page fault
-    // For simplicity, assume symbol table is in first page
+    // If page 0 is not in memory, we need to page it in
+    // But we need to be careful about the mutex
     if (!procMem.pages.empty() && !procMem.pages[0].inMemory) {
-        std::cout << "[PAGE FAULT] Symbol table access for process " << processId << "\n";
+        // We'll handle the page fault, but keep the mutex locked
+        // since pageIn should also be thread-safe
         pageIn(processId, 0);
 
+        // Re-check after pageIn
         if (!procMem.pages[0].inMemory) {
-            std::cout << "[ERROR] Failed to page in symbol table\n";
             return false;
         }
     }
@@ -368,14 +408,17 @@ bool MemoryManager::declareVariable(int processId, const std::string& varName, u
 }
 
 uint16_t MemoryManager::getVariable(int processId, const std::string& varName) {
+    std::lock_guard<std::mutex> lock(memoryMutex);
+
     auto it = processMemoryMap.find(processId);
-    if (it == processMemoryMap.end()) return 0;
+    if (it == processMemoryMap.end()) {
+        return 0;  // Return early if process not found
+    }
 
     ProcessMemory& procMem = it->second;
 
-    // Simulate symbol table access - this could cause a page fault
     if (!procMem.pages.empty() && !procMem.pages[0].inMemory) {
-        std::cout << "[PAGE FAULT] Symbol table access for process " << processId << "\n";
+        // Handle page fault while keeping mutex locked
         pageIn(processId, 0);
     }
 
@@ -383,6 +426,7 @@ uint16_t MemoryManager::getVariable(int processId, const std::string& varName) {
     auto varIt = symbolTable.find(varName);
     return (varIt != symbolTable.end()) ? varIt->second : 0;
 }
+
 
 void MemoryManager::setVariable(int processId, const std::string& varName, uint16_t value) {
     auto it = processMemoryMap.find(processId);
@@ -790,4 +834,9 @@ void MemoryManager::printReport() const {
     std::cout << "Backing Store:    " << (backingStore.is_open() ? "Active" : "Inactive") << "\n";
 
     std::cout << "\n========================================\n\n";
+}
+
+bool MemoryManager::isProcessAllocated(int processId) const {
+    // THIS CHECKS IF THE PROCESS EXISTS IN THE MAP:
+    return processMemoryMap.find(processId) != processMemoryMap.end();
 }

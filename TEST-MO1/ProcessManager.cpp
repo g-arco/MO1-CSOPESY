@@ -269,23 +269,79 @@ void ProcessManager::registerProcess(const std::shared_ptr<Screen>& process) {
 
 void ProcessManager::listScreens(const Config& config) {
     std::lock_guard<std::mutex> lock(processMutex);
-    std::cout << "-------------------------------------------\n";
-    std::cout << "| Currently Loaded Processes              |\n";
-    std::cout << "-------------------------------------------\n";
-    std::cout << std::left << std::setw(15) << "Name"
-        << std::left << std::setw(10) << "PID"
-        << std::left << std::setw(15) << "Status"
-        << std::left << "Core\n";
-    std::cout << "-------------------------------------------\n";
+    std::cout << "\n----------------------------------------\n";
 
+    std::unordered_set<int> activeCoreIds;
     for (const auto& pair : processes) {
-        const auto& process = pair.second;
-        std::cout << std::left << std::setw(15) << process->getName()
-            << std::left << std::setw(10) << process->getProcessId()
-            << std::left << std::setw(15) << process->getStatusString()
-            << std::left << ((process->getCoreAssigned() == -1) ? "N/A" : std::to_string(process->getCoreAssigned())) << "\n";
+        const std::shared_ptr<Screen>& proc = pair.second;
+        if (!proc->isFinished() && proc->getCoreAssigned() != -1) {
+            activeCoreIds.insert(proc->getCoreAssigned());
+        }
     }
-    std::cout << "-------------------------------------------\n";
+
+    int totalCores = config.numCpu;
+    int activeCores = static_cast<int>(activeCoreIds.size());
+    int coresAvailable = std::max(0, totalCores - activeCores);
+    double utilization = (static_cast<double>(activeCores) / totalCores) * 100.0;
+
+    std::cout << "CPU Stats:\n"
+        << "Cores Used:      " << activeCores << " / " << totalCores << "\n"
+        << "Cores Available: " << coresAvailable << "\n"
+        << "CPU Utilization: " << std::fixed << std::setprecision(2) << utilization << "%\n"
+        << "\n----------------------------------------\n";
+
+    // Ready Processes
+    std::cout << "\nReady Processes:\n";
+    int cntReady = 0;
+    for (const auto& pair : processes) {
+        const std::string& name = pair.first;
+        const std::shared_ptr<Screen>& proc = pair.second;
+
+        if (proc->getStatus() == ProcessStatus::READY) {
+            cntReady++;
+            std::cout << std::setw(15) << std::left << ("- " + name)
+                << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+                << "Awaiting CPU\n";
+        }
+    }
+    if (cntReady == 0) std::cout << "No ready processes.\n";
+
+    // Running Processes
+    std::cout << "\nRunning Processes:\n";
+    int cntRunning = 0;
+    for (const auto& pair : processes) {
+        const std::string& name = pair.first;
+        const std::shared_ptr<Screen>& proc = pair.second;
+
+        if (proc->getStatus() == ProcessStatus::RUNNING) {
+            cntRunning++;
+            std::cout << std::setw(15) << std::left << ("- " + name)
+                << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+                << "Core: " << std::setw(3) << proc->getCoreAssigned()
+                << "   " << proc->getCurrentInstruction()
+                << " / " << proc->getTotalInstructions() << "\n";
+        }
+    }
+    if (cntRunning == 0) std::cout << "No running processes.\n";
+
+    // Finished Processes
+    std::cout << "\nFinished Processes:\n";
+    int cntFinished = 0;
+    for (const auto& pair : processes) {
+        const std::string& name = pair.first;
+        const std::shared_ptr<Screen>& proc = pair.second;
+
+        if (proc->isFinished()) {
+            cntFinished++;
+            std::cout << std::setw(15) << std::left << ("- " + name)
+                << std::setw(22) << ("(" + proc->getCreationTimestamp() + ")")
+                << "Finished   "
+                << proc->getTotalInstructions() << " / " << proc->getTotalInstructions() << "\n";
+        }
+    }
+    if (cntFinished == 0) std::cout << "No finished processes.\n";
+
+    std::cout << "----------------------------------------\n\n";
 }
 
 void ProcessManager::generateReport() {

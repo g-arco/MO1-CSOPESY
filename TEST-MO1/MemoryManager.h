@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <map>
+#include <mutex>
 #include <string>
 #include <fstream>
 #include <unordered_map>
@@ -60,13 +61,14 @@ private:
     int frameSize;
     int nextSnapshot;
 
+    mutable std::mutex memoryMutex;
+
     // CHANGE: New members for demand paging
     int maxOverallMem;
     int memPerFrame;
     int minMemPerProc;
     int maxMemPerProc;
     std::vector<Frame> physicalFrames;
-    std::map<int, ProcessMemory> processMemoryMap;
     std::ofstream backingStore;
     int globalTime;  // For LRU tracking
 
@@ -94,6 +96,10 @@ public:
     // CHANGE: New constructor with demand paging parameters
     MemoryManager(int maxMem, int minProc, int maxProc, int frameSize);
     ~MemoryManager();
+
+    std::map<int, ProcessMemory> processMemoryMap;
+    bool isProcessAllocated(int pid) const;
+
 
     // Original methods (kept for compatibility)
     bool allocate(int processId);

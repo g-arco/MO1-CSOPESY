@@ -178,7 +178,7 @@ void Screen::executeNextInstruction() {
             }
 
             // Also print to console for immediate feedback
-            std::cout << "[PRINT] " << name << ": " << finalOutput << std::endl;
+           // std::cout << "[PRINT] " << name << ": " << finalOutput << std::endl;
         }
 
         else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
@@ -194,7 +194,7 @@ void Screen::executeNextInstruction() {
             sleepStartTick = cpuTicks; // Current global CPU tick
 
             printLog("SLEEP " + std::to_string(sleepDuration) + " ticks - process going to sleep");
-            std::cout << "[SLEEP] Process " << name << " going to sleep for " << sleepTicks << " ticks\n";
+            //std::cout << "[SLEEP] Process " << name << " going to sleep for " << sleepTicks << " ticks\n";
 
         }
         else if (instr.type == InstructionType::DECLARE && instr.args.size() == 2) {
@@ -764,7 +764,7 @@ bool Screen::checkSleepComplete(){
         instructionPointer++;
 
         printLog("SLEEP completed - process waking up");
-        std::cout << "[SLEEP] Process " << name << " waking up from sleep\n";
+        //std::cout << "[SLEEP] Process " << name << " waking up from sleep\n";
         return true;
     }
 

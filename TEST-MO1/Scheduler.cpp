@@ -137,19 +137,12 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
 
         // CHANGE: MCO2 - Memory allocation check for FCFS
         int pid = screen->getProcessId();
-        int memorySize = screen->getAllocatedMemory();
 
-        // Allocate memory if needed and not already allocated
-        if (memorySize > 0 && memoryManager) {
-            // Memory should already be allocated when process was created
-            // Just verify it's still valid
-            if (!memoryManager->allocateProcess(pid, memorySize)) {
-                std::cout << "[Scheduler][FCFS] Failed to allocate memory for process " << screen->getName() << "\n";
-                screen->setStatus(ProcessStatus::READY);
-                screen->setCoreAssigned(-1);
-                addProcess(screen); // Re-queue for later
-                return;
-            }
+        // FIXED: Only verify allocation, don't attempt to allocate here
+        if (memoryManager && !memoryManager->isProcessAllocated(pid)) {
+           // std::cerr << "[ERROR] Process " << pid << " not allocated but in scheduler queue!\n";
+            handleProcessError(screen, "Process not properly allocated in memory");
+            return;
         }
 
         while (!screen->isFinished() && !finished.load()) {
@@ -181,7 +174,7 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
                     screen->setStatus(ProcessStatus::READY);
                     screen->setCoreAssigned(-1);
                     addProcess(screen);
-                    std::cout << "[FCFS] Requeued sleeping process " << screen->getName() << "\n";
+                  //  std::cout << "[FCFS] Requeued sleeping process " << screen->getName() << "\n";
                     return;
                 }
             }
@@ -258,13 +251,13 @@ void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int co
         if (!screen->hasError()) {
             screen->setStatus(ProcessStatus::FINISHED);
             screen->printLog("FCFS: Process completed on core " + std::to_string(coreId));
-            std::cout << "[Scheduler][FCFS] Process '" << screen->getName()
-                << "' finished on core " << coreId << ".\n";
+          //  std::cout << "[Scheduler][FCFS] Process '" << screen->getName()
+            //    << "' finished on core " << coreId << ".\n";
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "[Scheduler][FCFS][Exception] Process '" << screen->getName()
-            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+      //  std::cerr << "[Scheduler][FCFS][Exception] Process '" << screen->getName()
+        //    << "' on core " << coreId << " threw exception: " << e.what() << "\n";
 
         // CHANGE: MCO2 - Cleanup memory on exception
         if (memoryManager) {
@@ -280,29 +273,21 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         int executed = 0;
 
         int pid = screen->getProcessId();
+
+        
         int memorySize = screen->getAllocatedMemory();
 
-        // CHANGE: MCO2 - Enhanced memory allocation for RR with demand paging
-        static std::map<int, bool> memoryAllocated;
-        if (!memoryAllocated[pid]) {
-            // CHANGE: MCO2 - Use new memory manager instead of old allocate method
-            if (memorySize > 0 && memoryManager) {
+        // CLEAN APPROACH: Use dedicated method to check allocation status
+        if (memoryManager && !memoryManager->isProcessAllocated(pid)) {
+            if (memorySize > 0) {
                 if (!memoryManager->allocateProcess(pid, memorySize)) {
+                    // Failed to allocate - requeue process
                     screen->setStatus(ProcessStatus::READY);
                     screen->setCoreAssigned(-1);
-                    addProcess(screen); // requeue process
+                    addProcess(screen);
                     return;
                 }
             }
-            /* ORIGINAL CODE - commented out
-            if (!memoryManager.allocate(pid)) {
-                screen->setStatus(ProcessStatus::READY);
-                screen->setCoreAssigned(-1);
-                addProcess(screen); // requeue process
-                return;
-            }
-            */
-            memoryAllocated[pid] = true;
         }
 
         while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
@@ -313,7 +298,7 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
 
                 // Check if sleep is complete
                 if (screen->checkSleepComplete()) {
-                    std::cout << "[SCHEDULER] Process " << screen->getName() << " woke up from sleep\n";
+                    //std::cout << "[SCHEDULER] Process " << screen->getName() << " woke up from sleep\n";
                     // Continue execution in next cycle
                 }
                 else {
@@ -377,7 +362,7 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                         screen->setStatus(ProcessStatus::READY);
                         screen->setCoreAssigned(-1);
                         addProcess(screen); // Requeue the sleeping process
-                        std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
+                      //  std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
                     }
                     else {
                         // Normal quantum expiration
@@ -385,7 +370,6 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                         screen->setCoreAssigned(-1);
                         addProcess(screen);
                     }
-                    memoryAllocated[pid] = false;
                     break;
                 }
 
@@ -398,7 +382,6 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 if (memoryManager) {
                     memoryManager->deallocateProcess(pid);
                 }
-                memoryAllocated[pid] = false;
                 break;
             }
 
@@ -419,14 +402,13 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 /* ORIGINAL CODE - commented out
                 memoryManager.release(pid); // release memory
                 */
-                memoryAllocated[pid] = false;
             }
             else if (screen->getIsSleeping()) {
                 // Process is sleeping - put it back in ready queue but mark as sleeping
                 screen->setStatus(ProcessStatus::READY);
                 screen->setCoreAssigned(-1);
                 addProcess(screen); // Requeue the sleeping process
-                std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
+              //  std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
             }
             else {
                 screen->setStatus(ProcessStatus::READY);
@@ -577,6 +559,6 @@ void Scheduler::handleProcessError(const std::shared_ptr<Screen>& screen, const 
     screen->setError(true);
     screen->setStatus(ProcessStatus::FINISHED);
     screen->printLog("Error during instruction execution: " + message);
-    std::cerr << "[Scheduler][ProcessError] Process '" << screen->getName()
-        << "' encountered an error: " << message << "\n";
+  //  std::cerr << "[Scheduler][ProcessError] Process '" << screen->getName()
+    //    << "' encountered an error: " << message << "\n";
 }
