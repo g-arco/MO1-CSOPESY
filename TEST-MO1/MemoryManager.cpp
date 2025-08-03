@@ -16,9 +16,9 @@
 MemoryManager::MemoryManager(int maxMem, int minProc, int maxProc, int frameSize)
     : maxOverallMem(maxMem), minMemPerProc(minProc), maxMemPerProc(maxProc),
     memPerFrame(frameSize), globalTime(0), numPagedIn(0), numPagedOut(0),
-    idleCpuTicks(0), activeCpuTicks(0), totalCpuTicks(0),
     // Original members (kept for compatibility)
-    totalMemory(maxMem), memPerProc(minProc), frameSize(frameSize), nextSnapshot(0)
+    totalMemory(maxMem), memPerProc(minProc), frameSize(frameSize), nextSnapshot(0),
+    globalTickCounter(0), totalIdleTicks(0), totalActiveTicks(0), numCoresAllocated(0)
 {
     // CHANGE: Initialize physical frames for demand paging
     int numFrames = maxOverallMem / memPerFrame;
@@ -39,12 +39,89 @@ MemoryManager::MemoryManager(int maxMem, int minProc, int maxProc, int frameSize
     // memory.push_back({ 0, totalMemory, -1, true }); // COMMENTED OUT
     std::cout << "[INIT] Memory initialized with " << numFrames << " frames of " << memPerFrame << " bytes each\n";
     std::cout << "[INIT] Total memory: " << maxOverallMem << " bytes\n";
+
+    initializeCores(4);
+
 }
 
 MemoryManager::~MemoryManager() {
     if (backingStore.is_open()) {
         backingStore.close();
     }
+}
+
+void MemoryManager::initializeCores(int numCores) {
+    std::lock_guard<std::mutex> lock(tickMutex);
+
+    // Allocate arrays of atomics instead of using vectors
+    coreActivity = std::make_unique<std::atomic<bool>[]>(numCores);
+    perCoreIdleTicks = std::make_unique<std::atomic<int>[]>(numCores);
+    perCoreActiveTicks = std::make_unique<std::atomic<int>[]>(numCores);
+    numCoresAllocated = numCores;
+
+    // Initialize the atomic values
+    for (int i = 0; i < numCores; ++i) {
+        coreActivity[i].store(false);
+        perCoreIdleTicks[i].store(0);
+        perCoreActiveTicks[i].store(0);
+    }
+    //std::cout << "[MEMORY] Initialized tick tracking for " << numCores << " cores\n";
+}
+
+
+void MemoryManager::recordCoreActivity(int coreId, bool isActive, int ticks) {
+    if (coreId < 0 || coreId >= numCoresAllocated) {
+        return; // Invalid core ID
+    }
+
+    // CRITICAL: Always update global tick counter first
+    globalTickCounter.fetch_add(ticks);
+
+    // Update per-core statistics
+    if (isActive) {
+        perCoreActiveTicks[coreId].fetch_add(ticks);
+        totalActiveTicks.fetch_add(ticks);
+    }
+    else {
+        perCoreIdleTicks[coreId].fetch_add(ticks);
+        totalIdleTicks.fetch_add(ticks);
+    }
+
+    // Update core activity status
+    coreActivity[coreId].store(isActive);
+
+
+    /*DEBUG: Print every 50 ticks to verify it's working
+    static std::atomic<int> debugCounter{ 0 };
+    if (debugCounter.fetch_add(1) % 50 == 0) {
+        int totalTicks = getTotalTicks();
+        int activeTicks = getTotalActiveTicks();
+        int idleTicks = getTotalIdleTicks();
+
+        std::cout << "\n=== CPU UTILIZATION DEBUG ===\n";
+        std::cout << "Current tick:     " << getCurrentTick() << "\n";
+        std::cout << "Total ticks:      " << totalTicks << "\n";
+        std::cout << "Active ticks:     " << activeTicks << "\n";
+        std::cout << "Idle ticks:       " << idleTicks << "\n";
+
+        if (totalTicks > 0) {
+            double utilization = (double)activeTicks / totalTicks * 100.0;
+            std::cout << "CPU utilization:  " << std::fixed << std::setprecision(2)
+                << utilization << "%\n";
+        }
+        else {
+            std::cout << "CPU utilization:  N/A (no ticks recorded)\n";
+        }
+        std::cout << "============================\n\n";
+    }*/
+
+
+}
+
+
+
+void MemoryManager::incrementGlobalTick(int ticks) {
+    globalTickCounter.fetch_add(ticks);
 }
 
 // CHANGE: New method to allocate process with specific memory size
@@ -82,6 +159,10 @@ bool MemoryManager::allocateProcess(int processId, int memorySize) {
     int frameSize = memPerFrame; // or whatever your frame size is
     int numPages = memorySize / frameSize;
 
+    if (numPages == 0) {
+        numPages = 1;  // You probably have this fix, but let's verify
+    }
+
     procMem.pages.clear();
     procMem.pages.resize(numPages);
 
@@ -100,7 +181,7 @@ bool MemoryManager::allocateProcess(int processId, int memorySize) {
     // now use `pm`, which is a copy
 
 
-    //std::cout << "[MEMORY] Allocated " << memorySize << " bytes (" << numPages << " pages) for process " << processId << "\n";
+   // std::cout << "[MEMORY] Allocated " << memorySize << " bytes (" << numPages << " pages) for process " << processId << "\n";
     return true;
 }
 
@@ -151,12 +232,31 @@ int MemoryManager::selectVictimFrame() {
     int oldestTime = physicalFrames[0].frameNumber >= 0 ?
         processMemoryMap[physicalFrames[0].processId].pages[physicalFrames[0].pageNumber].lastAccessed : globalTime;
 
-    for (int i = 1; i < physicalFrames.size(); ++i) {
+    for (int i = 0; i < physicalFrames.size(); ++i) {
         if (physicalFrames[i].occupied) {
-            int frameTime = processMemoryMap[physicalFrames[i].processId].pages[physicalFrames[i].pageNumber].lastAccessed;
-            if (frameTime < oldestTime) {
-                oldestTime = frameTime;
-                victimFrame = i;
+            int processId = physicalFrames[i].processId;
+            int pageNumber = physicalFrames[i].pageNumber;
+
+            auto it = processMemoryMap.find(processId);
+            if (it != processMemoryMap.end() && pageNumber < it->second.pages.size()) {
+                int lastAccessed = it->second.pages[pageNumber].lastAccessed;
+                if (lastAccessed < oldestTime) {
+                    oldestTime = lastAccessed;
+                    victimFrame = i;
+                }
+            }
+            else {
+                // Process not found or invalid page - good candidate for eviction
+                return i;
+            }
+        }
+    }
+
+    // If no victim found, just use first occupied frame
+    if (victimFrame == -1) {
+        for (int i = 0; i < physicalFrames.size(); ++i) {
+            if (physicalFrames[i].occupied) {
+                return i;
             }
         }
     }
@@ -194,14 +294,29 @@ void MemoryManager::pageIn(int processId, int pageNumber) {
     numPagedIn++;
 
     // CHANGE 11: Force more paging when memory is full
-    if (isMemoryFull()) {
-        // Page out oldest frame to make room for future allocations
-        int victimFrame = selectVictimFrame();
-        if (victimFrame != frameNumber) { // Don't page out what we just paged in
-            pageOut(victimFrame);
+    // ENHANCED: More aggressive paging policy
+    // Force pageouts when memory utilization is above 75%
+    int occupiedFrames = 0;
+    for (const auto& frame : physicalFrames) {
+        if (frame.occupied) occupiedFrames++;
+    }
+
+    double utilization = (double)occupiedFrames / physicalFrames.size();
+    if (utilization > 0.90) { // 90% threshold instead of 100%
+        // Find a different frame to page out (not the one we just paged in)
+        for (int i = 0; i < physicalFrames.size(); ++i) {
+            if (i != frameNumber && physicalFrames[i].occupied) {
+                // Check if this frame belongs to a different process or older page
+                if (physicalFrames[i].processId != processId) {
+                    std::cout << "[PAGING] Proactive pageout due to high memory utilization ("
+                        << (utilization * 100) << "%)\n";
+                    pageOut(i);
+                    break;
+                }
+            }
         }
     }
-    //std::cout << "[PAGING] Paged in: Process " << processId << ", Page " << pageNumber << " -> Frame " << frameNumber << "\n";
+   // std::cout << "[PAGING] Paged in: Process " << processId << ", Page " << pageNumber << " -> Frame " << frameNumber << "\n";
 }
 
 // CHANGE: Page out operation
@@ -241,7 +356,7 @@ void MemoryManager::pageOut(int frameNumber) {
     frame.pageNumber = -1;
 
     numPagedOut++;
-    // std::cout << "[PAGING] Paged out: Process " << processId << ", Page " << pageNumber << " from Frame " << frameNumber << "\n";
+    std::cout << "[PAGING] Paged out: Process " << processId << ", Page " << pageNumber << " from Frame " << frameNumber << "\n";
 }
 
 // CHANGE: Memory access validation
@@ -552,9 +667,18 @@ void MemoryManager::vmstat() {
 
     std::cout << "\nCPU Statistics:\n";
     std::cout << "====================\n";
-    std::cout << "Idle cpu ticks:   " << idleCpuTicks << "\n";
-    std::cout << "Active cpu ticks: " << activeCpuTicks << "\n";
-    std::cout << "Total cpu ticks:  " << totalCpuTicks << "\n";
+    std::cout << "Idle cpu ticks:   " << getTotalIdleTicks() << "\n";
+    std::cout << "Active cpu ticks: " << getTotalActiveTicks() << "\n";
+    std::cout << "Total cpu ticks:  " << getTotalTicks() << "\n";
+    std::cout << "Current tick:     " << getCurrentTick() << "\n";
+
+    // IMPROVED: Add CPU utilization percentage
+    int totalTicks = getTotalTicks();
+    if (totalTicks > 0) {
+        double utilization = (double)getTotalActiveTicks() / totalTicks * 100.0;
+        std::cout << "CPU utilization:  " << std::fixed << std::setprecision(2)
+            << utilization << "%\n";
+    }
 
     std::cout << "\nPaging Statistics:\n";
     std::cout << "====================\n";
@@ -596,11 +720,14 @@ void MemoryManager::vmstat() {
 // CHANGE: Helper methods for statistics
 int MemoryManager::getUsedMemory() const {
     int used = 0;
+
+    // Count occupied frames instead of allocated process memory
     for (const auto& frame : physicalFrames) {
         if (frame.occupied) {
             used += memPerFrame;
         }
     }
+
     return used;
 }
 
@@ -609,9 +736,26 @@ int MemoryManager::getFreeMemory() const {
 }
 
 void MemoryManager::updateCpuTicks(int idle, int active) {
-    idleCpuTicks += idle;
-    activeCpuTicks += active;
-    totalCpuTicks += (idle + active);
+   
+
+    // Update new atomic counters
+    totalIdleTicks.fetch_add(idle);
+    totalActiveTicks.fetch_add(active);
+    globalTickCounter.fetch_add(idle + active);
+
+    // REMOVED: The problematic debug output that was causing garbled messages
+    // std::cerr << "[TICKS] Active Tick: " << activeCpuTicks << ".\n";
+    // std::cerr << "[TICKS] Total Tick: " << totalCpuTicks << ".\n";
+
+    std::cout << "Current tick:     " << getCurrentTick() << "\n";
+
+    // IMPROVED: Add CPU utilization percentage
+    int totalTicks = getTotalTicks();
+    if (totalTicks > 0) {
+        double utilization = (double)getTotalActiveTicks() / totalTicks * 100.0;
+        std::cout << "CPU utilization:  " << std::fixed << std::setprecision(2)
+            << utilization << "%\n";
+    }
 }
 
 // CHANGE: Memory violation tracking
@@ -677,9 +821,9 @@ int MemoryManager::getProcessCount() const {
             seen.insert(block.processId);
         }
     }
-  //  std::cout << "[COUNT] Unique processes in memory: " << seen.size() << "\n";
-    return static_cast<int>(seen.size());
-    */
+   std::cout << "[COUNT] Unique processes in memory: " << seen.size() << "\n";
+    return static_cast<int>(seen.size());*/
+    
 }
 
 int MemoryManager::calculateExternalFragmentation() const {
@@ -807,15 +951,19 @@ void MemoryManager::printReport() const {
     // CPU Statistics
     std::cout << "\nCPU STATISTICS:\n";
     std::cout << "---------------\n";
-    std::cout << "Idle CPU Ticks:   " << idleCpuTicks << "\n";
-    std::cout << "Active CPU Ticks: " << activeCpuTicks << "\n";
-    std::cout << "Total CPU Ticks:  " << totalCpuTicks << "\n";
+    std::cout << "Idle cpu ticks:   " << getTotalIdleTicks() << "\n";
+    std::cout << "Active cpu ticks: " << getTotalActiveTicks() << "\n";
+    std::cout << "Total cpu ticks:  " << getTotalTicks() << "\n";
+    std::cout << "Current tick:     " << getCurrentTick() << "\n";
 
-    if (totalCpuTicks > 0) {
-        double cpuUtilization = (double)activeCpuTicks / totalCpuTicks * 100.0;
-        std::cout << "CPU Utilization:  " << std::fixed << std::setprecision(2)
-            << cpuUtilization << "%\n";
+    // IMPROVED: Add CPU utilization percentage
+    int totalTicks = getTotalTicks();
+    if (totalTicks > 0) {
+        double utilization = (double)getTotalActiveTicks() / totalTicks * 100.0;
+        std::cout << "CPU utilization:  " << std::fixed << std::setprecision(2)
+            << utilization << "%\n";
     }
+
 
     // Process Information
     std::cout << "\nPROCESS INFORMATION:\n";

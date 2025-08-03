@@ -55,6 +55,18 @@ struct Block {
 class MemoryManager {
 private:
     // Original members (kept for compatibility)
+      // IMPROVED: Centralized tick management
+    std::atomic<int> globalTickCounter{ 0 };
+    std::atomic<int> totalIdleTicks{ 0 };
+    std::atomic<int> totalActiveTicks{ 0 };
+    mutable std::mutex tickMutex;
+
+    // IMPROVED: Track per-core activity
+    std::unique_ptr<std::atomic<bool>[]> coreActivity;
+    std::unique_ptr<std::atomic<int>[]> perCoreIdleTicks;
+    std::unique_ptr<std::atomic<int>[]> perCoreActiveTicks;
+    int numCoresAllocated;
+
     std::atomic<bool> _shouldStop{ false };
     bool isValidProcessMemory(const ProcessMemory& pm) const {
         return pm.processId > 0 &&
@@ -67,7 +79,7 @@ private:
         for (const auto& frame : physicalFrames) {
             if (frame.occupied) usedFrames++;
         }
-        return usedFrames >= (physicalFrames.size() * 0.9); // 90% threshold
+        return usedFrames >= (physicalFrames.size()); // 90% threshold
     }
 
 
@@ -90,7 +102,7 @@ private:
     // Statistics tracking
     int numPagedIn;
     int numPagedOut;
-    int idleCpuTicks;
+    int idle;
     int activeCpuTicks;
     int totalCpuTicks;
 
@@ -148,6 +160,19 @@ public:
     int getFreeMemory() const;
     int getNumPagedIn() const { return numPagedIn; }
     int getNumPagedOut() const { return numPagedOut; }
+    
+
+    void initializeCores(int numCores);
+    void recordCoreActivity(int coreId, bool isActive, int ticks = 1);
+    void incrementGlobalTick(int ticks = 1);
+    int getCurrentTick() const { return globalTickCounter.load(); }
+
+    // IMPROVED: Better statistics
+    int getTotalIdleTicks() const { return totalIdleTicks.load(); }
+    int getTotalActiveTicks() const { return totalActiveTicks.load(); }
+    int getTotalTicks() const { return totalIdleTicks.load() + totalActiveTicks.load(); }
+
+    // IMPROVED: Replace the old updateCpuTicks method
     void updateCpuTicks(int idle, int active);
 
     // Process memory violation tracking

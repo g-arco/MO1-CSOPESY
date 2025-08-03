@@ -192,7 +192,7 @@ void Screen::executeNextInstruction() {
             // Set the process to sleeping state
             isSleeping = true;
             sleepRemainingTicks = sleepTicks;
-            sleepStartTick = cpuTicks; // Current global CPU tick
+            sleepStartTick = memoryManager->getCurrentTick(); // Current global CPU tick
 
             printLog("SLEEP " + std::to_string(sleepDuration) + " ticks - process going to sleep");
             //std::cout << "[SLEEP] Process " << name << " going to sleep for " << sleepTicks << " ticks\n";

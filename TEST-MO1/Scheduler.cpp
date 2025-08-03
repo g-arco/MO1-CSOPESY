@@ -21,7 +21,6 @@ extern std::atomic<int> activeCores;
 // CHANGE: MCO2 - Include external memory manager
 extern std::unique_ptr<MemoryManager> memoryManager;
 extern std::shared_ptr<ProcessManager> processManager;
-std::atomic<int> cpuTicks(0);
 
 class ActiveCoreGuard {
     std::atomic<int>& counter;
@@ -41,6 +40,10 @@ Scheduler::Scheduler(const Config& cfg)
     std::string lowerType = config.schedulerType;
     std::transform(lowerType.begin(), lowerType.end(), lowerType.begin(), ::tolower);
     schedulerType = (lowerType == "rr") ? InternalSchedulerType::RR : InternalSchedulerType::FCFS;
+
+    if (memoryManager) {
+        memoryManager->initializeCores(numCores);
+    }
 }
 
 Scheduler::~Scheduler() {
@@ -95,16 +98,20 @@ void Scheduler::finish() {
 }
 
 void Scheduler::worker(int coreId) {
-    /*std::cout << "[Scheduler] Worker thread started on core " << coreId << ".\n";*/
+    auto lastTickTime = std::chrono::steady_clock::now();
 
     while (true) {
         std::shared_ptr<Screen> screen;
+        bool hasWork = false;
+
         {
             std::unique_lock<std::mutex> lock(queueMutex);
-            cv.wait(lock, [this] { return finished.load() || !screenQueue.empty(); });
+
+            // CRITICAL: Use timeout instead of indefinite wait
+            bool workAvailable = cv.wait_for(lock, std::chrono::milliseconds(config.delayPerExec),
+                [this] { return finished.load() || !screenQueue.empty(); });
 
             if (finished.load() && screenQueue.empty()) {
-                /* std::cout << "[Scheduler] Worker thread on core " << coreId << " exiting.\n";*/
                 return;
             }
 
@@ -113,8 +120,19 @@ void Scheduler::worker(int coreId) {
                 screenQueue.pop();
                 screen->setCoreAssigned(coreId);
                 screen->setScheduled(true);
-
+                hasWork = true;
             }
+        }
+
+        // CRITICAL: Always record tick activity for this cycle
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTickTime);
+
+        if (elapsed.count() >= config.delayPerExec) {
+            if (memoryManager) {
+                memoryManager->recordCoreActivity(coreId, hasWork, 1);
+            }
+            lastTickTime = now;
         }
 
         if (screen) {
@@ -128,143 +146,9 @@ void Scheduler::worker(int coreId) {
                 executeProcessRR(screen, coreId);
             }
         }
-    }
-}
-
-void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int coreId) {
-    try {
-        screen->setCoreAssigned(coreId);
-        std::ofstream logFile(screen->getName() + ".txt");
-
-        // CHANGE: MCO2 - Memory allocation check for FCFS
-        int pid = screen->getProcessId();
-
-        // FIXED: Only verify allocation, don't attempt to allocate here
-        if (memoryManager && !memoryManager->isProcessAllocated(pid)) {
-           // std::cerr << "[ERROR] Process " << pid << " not allocated but in scheduler queue!\n";
-            handleProcessError(screen, "Process not properly allocated in memory");
-            return;
-        }
-
-        while (!screen->isFinished() && !finished.load()) {
-            if (screen->getIsSleeping()) {
-                // In FCFS, we can choose to either:
-                // Option 1: Keep the core busy-waiting (less realistic)
-                // Option 2: Release the core and requeue (more realistic)
-
-                // Option 2: Release core and requeue
-                while (screen->getIsSleeping() && !finished.load()) {
-                    screen->decrementSleepTicks();
-                    screen->checkSleepComplete();
-
-                    // Simulate CPU tick passage
-                    for (int i = 0; i < config.delayPerExec; ++i) {
-                        ++cpuTicks;
-                    }
-
-                    if (memoryManager) {
-                        memoryManager->updateCpuTicks(config.delayPerExec, 0); // Idle time
-                    }
-
-                    // Small delay to prevent busy loop
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
-
-                if (screen->getIsSleeping()) {
-                    // Still sleeping, requeue and exit
-                    screen->setStatus(ProcessStatus::READY);
-                    screen->setCoreAssigned(-1);
-                    addProcess(screen);
-                  //  std::cout << "[FCFS] Requeued sleeping process " << screen->getName() << "\n";
-                    return;
-                }
-            }
-
-
-
-            if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
-                processManager->cleanupFinishedProcesses();
-                screen->setStatus(ProcessStatus::FINISHED);
-                screen->printLog("Process finished execution.");
-
-                // CHANGE: MCO2 - Deallocate memory when process finishes
-                if (memoryManager) {
-                    memoryManager->deallocateProcess(pid);
-                }
-                break;
-            }
-
-            /*  std::cout << "[Scheduler][FCFS] Core " << coreId << " executing instruction "
-                  << screen->getCurrentInstruction() + 1 << " / "
-                  << screen->getTotalInstructions() << " on process '"
-                  << screen->getName() << "'\n";*/
-
-                  // CHANGE: MCO2 - Update CPU tick counters for memory manager
-            int idleTicks = 0;
-            int activeTicks = config.delayPerExec;
-
-            for (int i = 0; i < config.delayPerExec; ++i) {
-                ++cpuTicks;
-            }
-
-            try {
-                auto timestamp = currentTimestamp();
-                logFile << timestamp << " Core:" << coreId
-                    << " \"Hello world from " << screen->getName() << "!\"\n";
-                logFile.flush();
-
-                // CHANGE: MCO2 - Execute instruction with potential page fault handling
-                screen->executeNextInstruction();
-
-                if (screen->getIsSleeping()) {
-                    // Process started sleeping, handle in next iteration
-                    continue;
-                }
-
-
-
-                // CHANGE: MCO2 - Check for memory violations after instruction execution
-                if (screen->hasError()) {
-                    handleProcessError(screen, "Memory access violation occurred during instruction execution.");
-
-                    // Deallocate memory for terminated process
-                    if (memoryManager) {
-                        memoryManager->deallocateProcess(pid);
-                    }
-                    break;
-                }
-            }
-            catch (const std::exception& e) {
-                handleProcessError(screen, e.what());
-
-                // CHANGE: MCO2 - Deallocate memory on error
-                if (memoryManager) {
-                    memoryManager->deallocateProcess(pid);
-                }
-                break;
-            }
-
-            // CHANGE: MCO2 - Update memory manager with CPU statistics
-            if (memoryManager) {
-                memoryManager->updateCpuTicks(idleTicks, activeTicks);
-            }
-        }
-
-        if (!screen->hasError()) {
-            screen->setStatus(ProcessStatus::FINISHED);
-            processManager->cleanupFinishedProcesses();
-            screen->printLog("FCFS: Process completed on core " + std::to_string(coreId));
-          //  std::cout << "[Scheduler][FCFS] Process '" << screen->getName()
-            //    << "' finished on core " << coreId << ".\n";
-        }
-    }
-    catch (const std::exception& e) {
-      //  std::cerr << "[Scheduler][FCFS][Exception] Process '" << screen->getName()
-        //    << "' on core " << coreId << " threw exception: " << e.what() << "\n";
-
-        // CHANGE: MCO2 - Cleanup memory on exception
-        if (memoryManager) {
-            memoryManager->deallocateProcess(screen->getProcessId());
+        else {
+            // CRITICAL: Core is idle - still need to advance time
+            std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
         }
     }
 }
@@ -274,17 +158,12 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         screen->setCoreAssigned(coreId);
         std::ofstream logFile(screen->getName() + ".txt", std::ios::app);
         int executed = 0;
-
         int pid = screen->getProcessId();
-
-        
         int memorySize = screen->getAllocatedMemory();
 
-        // CLEAN APPROACH: Use dedicated method to check allocation status
         if (memoryManager && !memoryManager->isProcessAllocated(pid)) {
             if (memorySize > 0) {
                 if (!memoryManager->allocateProcess(pid, memorySize)) {
-                    // Failed to allocate - requeue process
                     screen->setStatus(ProcessStatus::READY);
                     screen->setCoreAssigned(-1);
                     addProcess(screen);
@@ -294,31 +173,24 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
         }
 
         while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
+            // CRITICAL: Record tick for EVERY quantum cycle
+            bool isExecutingInstruction = !screen->getIsSleeping() &&
+                (screen->getCurrentInstruction() < screen->getTotalInstructions());
+
+            if (memoryManager) {
+                memoryManager->recordCoreActivity(coreId, isExecutingInstruction, 1);
+            }
 
             if (screen->getIsSleeping()) {
-                // Decrement sleep ticks for this execution cycle
                 screen->decrementSleepTicks();
 
-                // Check if sleep is complete
-                if (screen->checkSleepComplete()) {
-                    //std::cout << "[SCHEDULER] Process " << screen->getName() << " woke up from sleep\n";
-                    // Continue execution in next cycle
-                }
-                else {
-                    // Still sleeping - use up quantum time but don't execute instruction
+                if (!screen->checkSleepComplete()) {
+                    // Still sleeping - tick was recorded as idle above
                     executed++;
-
-                    // Update CPU ticks (this counts as "idle" time for the process)
-                    for (int i = 0; i < config.delayPerExec; ++i) {
-                        ++cpuTicks;
-                    }
-
-                    if (memoryManager) {
-                        memoryManager->updateCpuTicks(config.delayPerExec, 0); // All idle time
-                    }
-
-                    continue; // Skip normal instruction execution
+                    std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
+                    continue;
                 }
+                // Sleep completed, continue to instruction execution
             }
 
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
@@ -327,77 +199,45 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 break;
             }
 
-
-
-            // CHANGE: MCO2 - Track idle and active CPU ticks separately
-            int idleTicks = 0;
-            int activeTicks = config.delayPerExec;
-
-            for (int i = 0; i < config.delayPerExec; ++i) {
-                ++cpuTicks;
-            }
-
             try {
-                auto timestamp = currentTimestamp();
-                /*logFile << timestamp << " Core:" << coreId
-                    << " \"Executing instruction " << screen->getCurrentInstruction()
-                    << " from process " << screen->getName() << "\"\n";
-                logFile.flush();*/
-
-                // CHANGE: MCO2 - Execute instruction with potential page fault and memory violation handling
                 screen->executeNextInstruction();
 
                 if (screen->getIsSleeping()) {
                     // Process went to sleep during execution
-                    // Don't increment executed counter - let it continue in next quantum
-                    break; // Exit quantum early
+                    // The tick was already recorded as active above
+                    executed++;
+                    continue;
                 }
 
-                // CHANGE: MCO2 - Enhanced error handling for memory violations
                 if (screen->hasError()) {
                     handleProcessError(screen, "Memory access violation occurred during instruction execution.");
-
-                    // Deallocate memory and mark as not allocated
                     if (memoryManager) {
                         memoryManager->deallocateProcess(pid);
                     }
                     break;
                 }
 
-                ++executed;
+                executed++;
             }
             catch (const std::exception& e) {
                 handleProcessError(screen, e.what());
-
-                // CHANGE: MCO2 - Cleanup memory on exception
                 if (memoryManager) {
                     memoryManager->deallocateProcess(pid);
                 }
                 break;
             }
 
-            // CHANGE: MCO2 - Update memory manager with CPU tick information
-            if (memoryManager) {
-                memoryManager->updateCpuTicks(idleTicks, activeTicks);
-            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
         }
 
+        // Handle process completion/requeuing
         if (!screen->hasError()) {
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
                 screen->setStatus(ProcessStatus::FINISHED);
-
-                // CHANGE: MCO2 - Use new memory manager deallocation method
                 if (memoryManager) {
                     memoryManager->deallocateProcess(pid);
                 }
                 processManager->cleanupFinishedProcesses();
-            }
-            else if (screen->getIsSleeping()) {
-                // Process is sleeping - put it back in ready queue but mark as sleeping
-                screen->setStatus(ProcessStatus::READY);
-                screen->setCoreAssigned(-1);
-                addProcess(screen); // Requeue the sleeping process
-              //  std::cout << "[SCHEDULER] Requeued sleeping process " << screen->getName() << "\n";
             }
             else {
                 screen->setStatus(ProcessStatus::READY);
@@ -405,19 +245,94 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 addProcess(screen);
             }
         }
-
-        // CHANGE: MCO2 - Memory snapshot is now handled by the memory manager internally
-        // The memory manager tracks its own snapshots based on page faults and memory operations
-        /* ORIGINAL CODE - commented out
-        // Snapshot memory every quantum
-        memoryManager.snapshot(cpuTicks);
-        */
     }
     catch (const std::exception& e) {
-        // CHANGE: MCO2 - Enhanced exception handling with memory cleanup
-        std::cerr << "[Scheduler][RR][Exception] Process '" << screen->getName()
-            << "' on core " << coreId << " threw exception: " << e.what() << "\n";
+        if (memoryManager) {
+            memoryManager->deallocateProcess(screen->getProcessId());
+        }
+    }
+}
 
+// SOLUTION 3: Enhanced executeProcessFCFS with consistent tick recording
+
+void Scheduler::executeProcessFCFS(const std::shared_ptr<Screen>& screen, int coreId) {
+    try {
+        screen->setCoreAssigned(coreId);
+        std::ofstream logFile(screen->getName() + ".txt");
+        int pid = screen->getProcessId();
+
+        if (memoryManager && !memoryManager->isProcessAllocated(pid)) {
+            handleProcessError(screen, "Process not properly allocated in memory");
+            return;
+        }
+
+        while (!screen->isFinished() && !finished.load()) {
+            // CRITICAL: Record tick for every execution cycle
+            bool isExecutingInstruction = !screen->getIsSleeping() &&
+                (screen->getCurrentInstruction() < screen->getTotalInstructions());
+
+            if (memoryManager) {
+                memoryManager->recordCoreActivity(coreId, isExecutingInstruction, 1);
+            }
+
+            if (screen->getIsSleeping()) {
+                screen->decrementSleepTicks();
+                screen->checkSleepComplete();
+
+                if (screen->getIsSleeping()) {
+                    // Still sleeping, requeue and exit
+                    screen->setStatus(ProcessStatus::READY);
+                    screen->setCoreAssigned(-1);
+                    addProcess(screen);
+                    return;
+                }
+            }
+
+            if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+                processManager->cleanupFinishedProcesses();
+                screen->setStatus(ProcessStatus::FINISHED);
+                screen->printLog("Process finished execution.");
+
+                if (memoryManager) {
+                    memoryManager->deallocateProcess(pid);
+                }
+                break;
+            }
+
+            try {
+                auto timestamp = currentTimestamp();
+                logFile << timestamp << " Core:" << coreId
+                    << " \"Hello world from " << screen->getName() << "!\"\n";
+                logFile.flush();
+
+                screen->executeNextInstruction();
+
+                if (screen->hasError()) {
+                    handleProcessError(screen, "Memory access violation occurred during instruction execution.");
+                    if (memoryManager) {
+                        memoryManager->deallocateProcess(pid);
+                    }
+                    break;
+                }
+            }
+            catch (const std::exception& e) {
+                handleProcessError(screen, e.what());
+                if (memoryManager) {
+                    memoryManager->deallocateProcess(pid);
+                }
+                break;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
+        }
+
+        if (!screen->hasError()) {
+            screen->setStatus(ProcessStatus::FINISHED);
+            processManager->cleanupFinishedProcesses();
+            screen->printLog("FCFS: Process completed on core " + std::to_string(coreId));
+        }
+    }
+    catch (const std::exception& e) {
         if (memoryManager) {
             memoryManager->deallocateProcess(screen->getProcessId());
         }

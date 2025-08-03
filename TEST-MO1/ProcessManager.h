@@ -36,7 +36,6 @@ public:
     static void registerProcess(const std::shared_ptr<Screen>& screen);
     static bool hasProcess(const std::string& name);
     static std::shared_ptr<Screen> getProcess(const std::string& name);
-    static void removeProcess(const std::string& name);
 
     // Process listing and reporting
     static void listScreens(const Config& config);
