@@ -4,6 +4,10 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <thread>
+#include <atomic>
+#include <atomic>
+#include <atomic>
 #include <mutex>
 #include <map>
 #include "Config.h"

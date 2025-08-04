@@ -5,6 +5,7 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <optional>
 #include <unordered_set>
 #include <mutex>
 #include <functional>
@@ -28,8 +29,24 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
     std::vector<Instruction> instructions;
     int numInstructions = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
 
-    std::vector<std::string> variables = { "x", "y", "z", "a", "b", "c" };
+    std::vector<std::string> allVariables = { "x", "y", "z", "a", "b", "c" };
     std::unordered_set<std::string> declaredVariables;
+
+    auto getRandomDeclaredVar = [&]() -> std::string {
+        if (declaredVariables.empty()) return "";
+        auto it = declaredVariables.begin();
+        std::advance(it, rand() % declaredVariables.size());
+        return *it;
+        };
+
+    auto getUniqueVarForDeclare = [&]() -> std::string {
+        for (const auto& var : allVariables) {
+            if (declaredVariables.find(var) == declaredVariables.end())
+                return var;
+        }
+        // Fallback if all are declared
+        return "v" + std::to_string(rand() % 1000);
+        };
 
     auto generateSimpleInstruction = [&](InstructionType type) -> Instruction {
         Instruction instr;
@@ -37,7 +54,7 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
 
         switch (type) {
         case InstructionType::DECLARE: {
-            std::string var = variables[rand() % variables.size()];
+            std::string var = getUniqueVarForDeclare();
             int value = rand() % 20 + 1;
             instr.args = { var, std::to_string(value) };
             declaredVariables.insert(var);
@@ -45,9 +62,9 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
         }
         case InstructionType::ADD:
         case InstructionType::SUBTRACT: {
-            std::string dest = variables[rand() % variables.size()];
-            std::string op1 = variables[rand() % variables.size()];
-            std::string op2 = variables[rand() % variables.size()];
+            std::string dest = getRandomDeclaredVar();
+            std::string op1 = getRandomDeclaredVar();
+            std::string op2 = getRandomDeclaredVar();
             instr.args = { dest, op1, op2 };
             declaredVariables.insert(dest);
             break;
@@ -60,17 +77,17 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
             instr.args = { std::to_string(rand() % 3 + 1) };
             break;
         }
-                                   // CHANGE: Add READ/WRITE instruction generation
         case InstructionType::READ: {
-            std::string var = variables[rand() % variables.size()];
-            uint32_t addr = 0x500 + (rand() % 16) * 0x100;
+            std::string var = getRandomDeclaredVar();
+            uint32_t addr = rand() % config.minMemPerProc;
             std::ostringstream oss;
             oss << "0x" << std::hex << addr;
             instr.args = { var, oss.str() };
             break;
         }
         case InstructionType::WRITE: {
-            uint32_t addr = 0x500 + (rand() % 16) * 0x100;
+            std::string var = getRandomDeclaredVar();
+            uint32_t addr = rand() % config.minMemPerProc;
             std::ostringstream oss;
             oss << "0x" << std::hex << addr;
             int value = rand() % 100 + 1;
@@ -79,17 +96,25 @@ void ProcessManager::createAndAttach(const std::string& name, const Config& conf
         }
         default:
             break;
-        }
+        }  // <-- end switch
 
-        return instr;
-        };
+        return instr;  // return *after* the switch block
+        };  // <-- end lambda
+     
 
-    for (int i = 0; i < numInstructions; ++i) {
-        // CHANGE: Include READ/WRITE in random generation (0-6 range)
-        int choice = rand() % 7;  // 0 to 6 to include READ/WRITE
-        InstructionType type = static_cast<InstructionType>(choice);
-        instructions.push_back(generateSimpleInstruction(type));
+    int numDeclares = std::min<int>(rand() % 3 + 1, allVariables.size());
+    for (int i = 0; i < numDeclares; ++i) {
+        Instruction declInstr = generateSimpleInstruction(InstructionType::DECLARE);
+        instructions.push_back(declInstr);
     }
+
+    while (instructions.size() < static_cast<size_t>(numInstructions)) {
+        int choice = rand() % 7;
+        InstructionType type = static_cast<InstructionType>(choice);
+        Instruction instr = generateSimpleInstruction(type);
+        instructions.push_back(instr);
+    }
+
 
     auto screen = std::make_shared<Screen>(name, instructions, globalProcessId++);
     registerProcess(screen);
@@ -372,21 +397,52 @@ bool ProcessManager::hasProcess(const std::string& name) {
 void ProcessManager::cleanupFinishedProcesses() {
     std::lock_guard<std::mutex> lock(processMutex);
 
-    for (auto it = processes.begin(); it != processes.end(); ) {
-        auto& screen = it->second;
+    std::vector<std::string> toRemove;
 
-        if (screen->isFinished()) {
-            int pid = screen->getProcessId();  // Save before erasing
+    for (auto& pair : processes) {
+        auto& screen = pair.second;
+
+        // Ensure process is truly finished before cleanup
+        if (screen->isFinished() && screen->getStatus() == ProcessStatus::FINISHED) {
+            int pid = screen->getProcessId();
+
+            // Clear core assignment before cleanup
+            screen->setCoreAssigned(-1);
+
             if (memoryManager) {
                 memoryManager->deallocateProcess(pid);
-
             }
-            it = processes.erase(it);  // Don't access screen after this
-        }
-        else {
-            ++it;
+
+            //toRemove.push_back(pair.first);
         }
     }
 
+    // Remove processes after iteration
+    //for (const auto& name : toRemove) {
+      //  processes.erase(name);
+    //}
+
+
+
 
 }
+
+double ProcessManager::getCpuUtilization(int numCores) {
+    std::lock_guard<std::mutex> lock(processMutex);
+
+    std::unordered_set<int> activeCoreIds;
+    for (const auto& pair : processes) {
+        const std::shared_ptr<Screen>& proc = pair.second;
+        if (!proc->isFinished() && proc->getCoreAssigned() != -1) {
+            activeCoreIds.insert(proc->getCoreAssigned());
+        }
+    }
+
+    int activeCores = static_cast<int>(activeCoreIds.size());
+    if (numCores == 0) {
+        return 0.0;
+    }
+
+    return (static_cast<double>(activeCores) / numCores) * 100.0;
+}
+

@@ -1,2 +1,0 @@
-(08/03/2025 10:36:27 PM) Core:7 "Hello world from process1980!"
-(08/03/2025 10:36:27 PM) Core:7 "Hello world from process1980!"

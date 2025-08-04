@@ -80,6 +80,10 @@ void Scheduler::joinAll() {
         /*std::cout << "[Scheduler] Joining dummy generation thread.\n";*/
         dummyThread.join();
     }
+
+    if (cleanupThread.joinable()) {
+        cleanupThread.join();
+    }
 }
 
 void Scheduler::addProcess(const std::shared_ptr<Screen>& process) {
@@ -156,11 +160,11 @@ void Scheduler::worker(int coreId) {
 void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int coreId) {
     try {
         screen->setCoreAssigned(coreId);
-        std::ofstream logFile(screen->getName() + ".txt", std::ios::app);
         int executed = 0;
         int pid = screen->getProcessId();
         int memorySize = screen->getAllocatedMemory();
 
+        // Memory allocation check...
         if (memoryManager && !memoryManager->isProcessAllocated(pid)) {
             if (memorySize > 0) {
                 if (!memoryManager->allocateProcess(pid, memorySize)) {
@@ -172,8 +176,9 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
             }
         }
 
-        while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
-            // CRITICAL: Record tick for EVERY quantum cycle
+        bool processCompleted = false;
+
+        while (!screen->isFinished() && executed < quantumCycles && !finished.load() && !processCompleted) {
             bool isExecutingInstruction = !screen->getIsSleeping() &&
                 (screen->getCurrentInstruction() < screen->getTotalInstructions());
 
@@ -183,19 +188,16 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
 
             if (screen->getIsSleeping()) {
                 screen->decrementSleepTicks();
-
                 if (!screen->checkSleepComplete()) {
-                    // Still sleeping - tick was recorded as idle above
                     executed++;
                     std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
                     continue;
                 }
-                // Sleep completed, continue to instruction execution
             }
 
+            // Check for completion ONCE
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
-                screen->setStatus(ProcessStatus::FINISHED);
-                processManager->cleanupFinishedProcesses();
+                processCompleted = true;
                 break;
             }
 
@@ -203,8 +205,6 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 screen->executeNextInstruction();
 
                 if (screen->getIsSleeping()) {
-                    // Process went to sleep during execution
-                    // The tick was already recorded as active above
                     executed++;
                     continue;
                 }
@@ -214,6 +214,7 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                     if (memoryManager) {
                         memoryManager->deallocateProcess(pid);
                     }
+                    processCompleted = true;
                     break;
                 }
 
@@ -224,34 +225,36 @@ void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int core
                 if (memoryManager) {
                     memoryManager->deallocateProcess(pid);
                 }
+                processCompleted = true;
                 break;
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
         }
 
-        // Handle process completion/requeuing
-        if (!screen->hasError()) {
-            if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
-                screen->setStatus(ProcessStatus::FINISHED);
-                if (memoryManager) {
-                    memoryManager->deallocateProcess(pid);
-                }
-                processManager->cleanupFinishedProcesses();
+        // Handle process completion/requeuing - SINGLE POINT OF CONTROL
+        if (processCompleted || screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+            screen->setStatus(ProcessStatus::FINISHED);
+            screen->setCoreAssigned(-1);  // IMPORTANT: Clear core assignment immediately
+            if (memoryManager) {
+                memoryManager->deallocateProcess(pid);
             }
-            else {
-                screen->setStatus(ProcessStatus::READY);
-                screen->setCoreAssigned(-1);
-                addProcess(screen);
-            }
+            // Don't call cleanupFinishedProcesses() here - let main thread handle it
+        }
+        else if (!screen->hasError()) {
+            screen->setStatus(ProcessStatus::READY);
+            screen->setCoreAssigned(-1);
+            addProcess(screen);
         }
     }
     catch (const std::exception& e) {
+        screen->setCoreAssigned(-1);  // Clear core assignment on error
         if (memoryManager) {
             memoryManager->deallocateProcess(screen->getProcessId());
         }
     }
 }
+
 
 // SOLUTION 3: Enhanced executeProcessFCFS with consistent tick recording
 
@@ -383,11 +386,11 @@ void Scheduler::dummyProcessLoop() {
                 break;
             }*/
             // CHANGE: Check memory pressure before creating new processes
-            if (memoryManager && memoryManager->getUsedMemory() >= (config.maxOverallMem * 0.8)) {
+            //if (memoryManager && memoryManager->getUsedMemory() >= (config.maxOverallMem * 0.8)) {
                 // Memory is getting full, slow down process creation
-                std::this_thread::sleep_for(std::chrono::milliseconds(config.batchFreq * 2));
-                continue;
-            }
+               // std::this_thread::sleep_for(std::chrono::milliseconds(config.batchFreq * 2));
+                //continue;
+            //}
 
             if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);
@@ -471,4 +474,34 @@ void Scheduler::handleProcessError(const std::shared_ptr<Screen>& screen, const 
     screen->printLog("Error during instruction execution: " + message);
   //  std::cerr << "[Scheduler][ProcessError] Process '" << screen->getName()
     //    << "' encountered an error: " << message << "\n";
+}
+
+void Scheduler::startCleanupThread() {
+    bool expected = false;
+    if (!cleanupRunning.compare_exchange_strong(expected, true)) {
+        // Already running
+        return;
+    }
+
+    if (cleanupThread.joinable()) {
+        cleanupThread.join();
+    }
+
+    cleanupThread = std::thread(&Scheduler::cleanupLoop, this);
+}
+
+void Scheduler::stopCleanupThread() {
+    cleanupRunning.store(false);
+    if (cleanupThread.joinable()) {
+        cleanupThread.join();
+    }
+}
+
+void Scheduler::cleanupLoop() {
+    while (cleanupRunning.load()) {
+        if (processManager) {
+            processManager->cleanupFinishedProcesses();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 }

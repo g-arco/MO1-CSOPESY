@@ -9,6 +9,7 @@
 #include <sstream>
 #include <thread>
 #include <limits>
+#include <unordered_set>
 #include "CLIUtils.h"
 #include <unordered_map>
 
@@ -554,26 +555,52 @@ void Screen::showScreen() {
 void Screen::generateDummyInstructions(const Config& config) {
     std::lock_guard<std::mutex> lock(mtx);
 
-    std::vector<std::string> variables = { "x", "y", "z", "a", "b", "c" };
+    std::vector<std::string> variables = { "x", "y", "z", "a", "b", "c", "d", "e" };
+    std::unordered_set<std::string> declaredVariables;  // Track declared vars
     std::vector<Instruction> instrs;
+
     int count = rand() % (config.maxIns - config.minIns + 1) + config.minIns;
 
-    auto generateSimpleInstruction = [&](InstructionType type) -> Instruction {
+    for (int i = 0; i < count; /* increment inside loop */) {
         Instruction instr;
-        instr.type = type;
 
-        switch (type) {
+        int choice = rand() % 7;
+        instr.type = static_cast<InstructionType>(choice);
+
+        bool validInstruction = true;
+
+        switch (instr.type) {
         case InstructionType::DECLARE: {
-            std::string var = variables[rand() % variables.size()];
+            std::vector<std::string> undeclared;
+            for (const auto& var : variables) {
+                if (declaredVariables.find(var) == declaredVariables.end()) {
+                    undeclared.push_back(var);
+                }
+            }
+
+            if (undeclared.empty()) {
+               // std::cout << "[DEBUG] No more undeclared variables for " << name << "\n";
+                validInstruction = false;  // Retry this iteration
+                break;
+            }
+
+            std::string var = undeclared[rand() % undeclared.size()];
             int value = rand() % 20 + 1;
+            declaredVariables.insert(var);
             instr.args = { var, std::to_string(value) };
             break;
         }
         case InstructionType::ADD:
         case InstructionType::SUBTRACT: {
-            std::string dest = variables[rand() % variables.size()];
-            std::string op1 = variables[rand() % variables.size()];
-            std::string op2 = variables[rand() % variables.size()];
+            if (declaredVariables.size() < 3) {
+                validInstruction = false;  // Retry this iteration
+                break;
+            }
+
+            std::vector<std::string> declaredVec(declaredVariables.begin(), declaredVariables.end());
+            std::string dest = declaredVec[rand() % declaredVec.size()];
+            std::string op1 = declaredVec[rand() % declaredVec.size()];
+            std::string op2 = declaredVec[rand() % declaredVec.size()];
             instr.args = { dest, op1, op2 };
             break;
         }
@@ -582,43 +609,54 @@ void Screen::generateDummyInstructions(const Config& config) {
             break;
         }
         case InstructionType::SLEEP: {
-            instr.args = { std::to_string(rand() % 3 + 1) };
+            instr.args = { std::to_string(0) };
             break;
         }
-                                   // CHANGE: Add generation for READ/WRITE instructions
         case InstructionType::READ: {
-            std::string var = variables[rand() % variables.size()];
-            uint32_t addr = 0x1000 + (rand() % 16) * 0x100; // Random addresses
+            if (declaredVariables.empty()) {
+                validInstruction = false;  // Retry this iteration
+                break;
+            }
+            if (config.minMemPerProc == 0) {
+                validInstruction = false;  // Avoid division by zero
+                break;
+            }
+            uint32_t addr = rand() % config.minMemPerProc;
             std::ostringstream oss;
             oss << "0x" << std::hex << addr;
+            std::string var = *std::next(declaredVariables.begin(), rand() % declaredVariables.size());
             instr.args = { var, oss.str() };
             break;
         }
         case InstructionType::WRITE: {
-            uint32_t addr = 0x1000 + (rand() % 16) * 0x100; // Random addresses
+            if (config.minMemPerProc == 0) {
+                validInstruction = false;  // Avoid division by zero
+                break;
+            }
+            uint32_t addr = rand() % config.minMemPerProc;
+            int value = rand() % 100 + 1;
             std::ostringstream oss;
             oss << "0x" << std::hex << addr;
-            int value = rand() % 100 + 1;
             instr.args = { oss.str(), std::to_string(value) };
             break;
         }
-        default: break;
+        default:
+            validInstruction = false;  // Unknown instruction, retry
+            break;
         }
 
-        return instr;
-        };
-
-    for (int i = 0; i < count; ++i) {
-        // CHANGE: Include READ/WRITE in instruction generation (0-6 range now)
-        int choice = rand() % 7;  // 0–6 to include READ/WRITE
-        InstructionType type = static_cast<InstructionType>(choice);
-        instrs.push_back(generateSimpleInstruction(type));
+        if (validInstruction) {
+            instrs.push_back(instr);
+            ++i;  // Increment only on valid instruction
+        }
     }
 
     instructions = instrs;
     instructionPointer = 0;
     status = ProcessStatus::READY;
 }
+
+
 
 // Rest of the methods remain the same...
 void Screen::printLog(const std::string& msg) {

@@ -93,6 +93,7 @@ void commandLoop() {
             }
             else {
                 scheduler->start();
+                scheduler->startCleanupThread();
                 scheduler->startDummyGeneration();
             }
         }
@@ -230,7 +231,7 @@ void commandLoop() {
         // CHANGE: MCO2 - New vmstat command
         else if (cmd == "vmstat") {
             if (memoryManager) {
-                memoryManager->vmstat();
+                memoryManager->vmstat(processManager->getCpuUtilization(config.numCpu));
             }
             else {
                 std::cout << "Memory manager not initialized. Run 'initialize' first.\n";

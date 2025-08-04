@@ -89,7 +89,7 @@ private:
     int frameSize;
     int nextSnapshot;
 
-    mutable std::mutex memoryMutex;
+    std::recursive_mutex memoryMutex;
     // CHANGE: New members for demand paging
     int maxOverallMem;
     int memPerFrame;
@@ -109,12 +109,20 @@ private:
     // CHANGE: Added helper methods for demand paging
     int findFreeFrame();
     int selectVictimFrame();  // LRU replacement
+    void initializeBackingStorePages(int processId);
     
     bool isValidAddress(int processId, uint32_t address);
     int getPageNumber(uint32_t address);
     int getOffsetInPage(uint32_t address);
     void writeToBackingStore(int processId, int pageNumber, const std::vector<uint8_t>& data);
     std::vector<uint8_t> readFromBackingStore(int processId, int pageNumber);
+
+    // Memory access operations (for READ/WRITE instructions)
+    uint16_t readMemoryInternal(int processId, uint32_t address);
+    void writeMemoryInternal(int processId, uint32_t address, uint16_t value);
+
+    // Variable management (symbol table operations)
+    bool declareVariableInternal(int processId, const std::string& varName, uint16_t value);
 
 public:
     // Original constructor (kept for compatibility)
@@ -152,7 +160,7 @@ public:
 
     // Memory debugging commands
     void processingSmi();
-    void vmstat();
+    void vmstat(double cpuUtilization);
 
     // Statistics methods
     int getTotalMemory() const { return maxOverallMem; }

@@ -18,6 +18,7 @@ enum class InstructionType;
 
 class ProcessManager {
 private:
+
     // Process storage
     static std::map<std::string, std::shared_ptr<Screen>> processes;
     static std::mutex processMutex;
@@ -29,6 +30,7 @@ private:
 public:
     // Scheduler management
     static void setScheduler(Scheduler* sched);
+    static double getCpuUtilization(int numCores);
 
     // ORIGINAL METHODS (from MO1)
     // Process creation and management

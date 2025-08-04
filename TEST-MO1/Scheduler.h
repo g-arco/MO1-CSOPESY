@@ -29,6 +29,9 @@ private:
     int quantumCycles;
     InternalSchedulerType schedulerType;
 
+    std::thread cleanupThread;
+    std::atomic<bool> cleanupRunning{ false };
+
     // Process queue and synchronization
     std::queue<std::shared_ptr<Screen>> screenQueue;
     mutable std::mutex queueMutex;
@@ -55,6 +58,10 @@ public:
     explicit Scheduler(const Config& cfg);
     ~Scheduler();
 
+
+    void startCleanupThread();
+    void cleanupLoop();
+    void stopCleanupThread();
     // Core functionality
     void start();
     void finish();
