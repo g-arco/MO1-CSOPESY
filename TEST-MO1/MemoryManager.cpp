@@ -308,6 +308,8 @@ int MemoryManager::findFreeFrame() {
         int totalPagesNeeded = procMem.pages.size();
         int totalFramesAvailable = physicalFrames.size();
 
+        if (minMemPerProc > maxOverallMem) { return -2;  }
+
        // std::cout << "[DEBUG] Process " << processId << " needs " << totalPagesNeeded
          //   << " pages, system has " << totalFramesAvailable << " frames" << std::endl;
 
@@ -353,6 +355,8 @@ void MemoryManager::pageIn(int processId, int pageNumber) {
      //   << ", Page " << pageNumber << std::endl;
 
     int frameNumber = findFreeFrame();
+
+    if (frameNumber == -2) { return; };
 
     // CRITICAL: Force replacement when all frames are occupied
     if (frameNumber == -1) {

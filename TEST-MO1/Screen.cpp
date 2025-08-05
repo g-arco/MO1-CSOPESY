@@ -180,7 +180,7 @@ void Screen::executeNextInstruction() {
             }
 
            //Also print to console for immediate feedback
-           std::cout << "[PRINT] " << name << ": " << finalOutput << std::endl;
+           //std::cout << "[PRINT] " << name << ": " << finalOutput << std::endl;
         }
 
         else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {
