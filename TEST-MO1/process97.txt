@@ -1,4 +1,0 @@
-(08/05/2025 12:12:59 AM) Core:25 "Hello world from process97!"
-(08/05/2025 12:12:59 AM) Core:25 "Hello world from process97!"
-(08/05/2025 12:12:59 AM) Core:25 "Hello world from process97!"
-(08/05/2025 12:12:59 AM) Core:25 "Hello world from process97!"

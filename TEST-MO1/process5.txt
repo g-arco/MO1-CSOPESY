@@ -1,5 +1,0 @@
-(08/05/2025 02:45:27 AM) Core:4 "Hello world from process5!"
-(08/05/2025 02:45:27 AM) Core:4 "Hello world from process5!"
-(08/05/2025 02:45:27 AM) Core:4 "Hello world from process5!"
-(08/05/2025 02:45:27 AM) Core:4 "Hello world from process5!"
-(08/05/2025 02:45:27 AM) Core:4 "Hello world from process5!"

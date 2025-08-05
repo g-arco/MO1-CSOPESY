@@ -1,5 +1,0 @@
-(08/05/2025 02:46:16 AM) Core:0 "Hello world from process32!"
-(08/05/2025 02:46:16 AM) Core:0 "Hello world from process32!"
-(08/05/2025 02:46:16 AM) Core:0 "Hello world from process32!"
-(08/05/2025 02:46:16 AM) Core:0 "Hello world from process32!"
-(08/05/2025 02:46:17 AM) Core:0 "Hello world from process32!"

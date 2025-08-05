@@ -126,14 +126,45 @@ void MemoryManager::incrementGlobalTick(int ticks) {
     globalTickCounter.fetch_add(ticks);
 }
 
-void MemoryManager::initializeBackingStorePages(int processId) {
-    std::vector<uint8_t> emptyPage(memPerFrame, 0);
-    auto it = processMemoryMap.find(processId);
-    if (it == processMemoryMap.end()) return;
-    int numPages = it->second.pages.size();
-    for (int i = 0; i < numPages; ++i) {
-        writeToBackingStore(processId, i, emptyPage);
+void MemoryManager::initializeBackingStore() {
+    std::lock_guard<std::mutex> storeLock(backingStoreMutex);
+
+    // Create/overwrite the backing store file with a proper header
+    std::ofstream backingStoreFile("csopesy-backing-store.txt", std::ios::out | std::ios::trunc);
+    if (!backingStoreFile.is_open()) {
+        std::cerr << "[ERROR] Failed to create backing store file.\n";
+        return;
     }
+
+    // Get current timestamp
+    auto now = std::time(nullptr);
+    std::tm tm_now{};
+    char timeBuffer[100];
+#ifdef _WIN32
+    localtime_s(&tm_now, &now);
+#else
+    localtime_r(&now, &tm_now);
+#endif
+    std::strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", &tm_now);
+
+    // Write file header
+    backingStoreFile << "=================================================\n";
+    backingStoreFile << "           CSOPESY BACKING STORE\n";
+    backingStoreFile << "=================================================\n";
+    backingStoreFile << "Initialized: " << timeBuffer << "\n";
+    backingStoreFile << "Total Memory: " << maxOverallMem << " bytes\n";
+    backingStoreFile << "Frame Size: " << memPerFrame << " bytes\n";
+    backingStoreFile << "Total Frames: " << (maxOverallMem / memPerFrame) << "\n";
+    backingStoreFile << "=================================================\n";
+    backingStoreFile << "\nThis file contains pages that have been swapped\n";
+    backingStoreFile << "out of physical memory due to memory pressure.\n";
+    backingStoreFile << "Each page entry shows the process ID, page number,\n";
+    backingStoreFile << "timestamp, and the actual memory contents in both\n";
+    backingStoreFile << "hexadecimal and decimal formats.\n\n";
+
+    backingStoreFile.close();
+
+    //std::cout << "[INIT] Backing store initialized: csopesy-backing-store.txt\n";
 }
 
 
@@ -187,7 +218,7 @@ bool MemoryManager::allocateProcess(int processId, int memorySize) {
     procMem.violationTime = "";
 
     processMemoryMap[processId] = procMem;
-    initializeBackingStorePages(processId);
+    initializeBackingStore();
 
     //  std::cout << "[MEMORY] Process " << processId << " allocated with "
       // << numPages << " pages (none loaded yet)" << std::endl;
@@ -746,40 +777,175 @@ void MemoryManager::setVariable(int processId, const std::string& varName, uint1
 
 // CHANGE: Backing store operations
 void MemoryManager::writeToBackingStore(int processId, int pageNumber, const std::vector<uint8_t>& data) {
-    if (!backingStore.is_open()) {
-        backingStore.open("csopesy-backing-store.txt", std::ios::binary | std::ios::out | std::ios::app);
+    std::lock_guard<std::mutex> storeLock(backingStoreMutex);
+
+    // Open backing store in text mode for human readability
+    std::ofstream backingStoreFile("csopesy-backing-store.txt", std::ios::out | std::ios::app);
+    if (!backingStoreFile.is_open()) {
+        std::cerr << "[ERROR] Failed to open backing store file for writing.\n";
+        return;
     }
 
-    // Write process ID, page number, and data
-    backingStore.write(reinterpret_cast<const char*>(&processId), sizeof(processId));
-    backingStore.write(reinterpret_cast<const char*>(&pageNumber), sizeof(pageNumber));
-    backingStore.write(reinterpret_cast<const char*>(data.data()), data.size());
-    backingStore.flush();
+    // Get current timestamp
+    auto now = std::time(nullptr);
+    std::tm tm_now{};
+    char timeBuffer[100];
+#ifdef _WIN32
+    localtime_s(&tm_now, &now);
+#else
+    localtime_r(&now, &tm_now);
+#endif
+    std::strftime(timeBuffer, sizeof(timeBuffer), "%Y-%m-%d %H:%M:%S", &tm_now);
+
+    // Write page header with clear formatting
+    backingStoreFile << "=====================================\n";
+    backingStoreFile << "BACKING STORE PAGE ENTRY\n";
+    backingStoreFile << "=====================================\n";
+    backingStoreFile << "Process ID: " << processId << "\n";
+    backingStoreFile << "Page Number: " << pageNumber << "\n";
+    backingStoreFile << "Timestamp: " << timeBuffer << "\n";
+    backingStoreFile << "Frame Size: " << memPerFrame << " bytes\n";
+    backingStoreFile << "-------------------------------------\n";
+    backingStoreFile << "PAGE DATA (Hexadecimal):\n";
+
+    // Write data in hexadecimal format with memory addresses
+    for (size_t i = 0; i < data.size(); i += 16) {
+        // Memory address column
+        backingStoreFile << std::hex << std::uppercase << std::setfill('0')
+            << std::setw(8) << (pageNumber * memPerFrame + i) << ": ";
+
+        // Hex data (16 bytes per line)
+        size_t lineEnd = std::min(i + 16, data.size());
+        for (size_t j = i; j < lineEnd; ++j) {
+            backingStoreFile << std::hex << std::uppercase << std::setfill('0')
+                << std::setw(2) << static_cast<int>(data[j]) << " ";
+        }
+
+        // Padding for alignment if less than 16 bytes
+        for (size_t j = lineEnd; j < i + 16; ++j) {
+            backingStoreFile << "   ";
+        }
+
+        // ASCII representation
+        backingStoreFile << "| ";
+        for (size_t j = i; j < lineEnd; ++j) {
+            char c = static_cast<char>(data[j]);
+            backingStoreFile << (std::isprint(c) ? c : '.');
+        }
+        backingStoreFile << "\n";
+    }
+
+    backingStoreFile << "-------------------------------------\n";
+    backingStoreFile << "PAGE DATA (Decimal Values):\n";
+
+    // Also write data in decimal format for easier debugging
+    for (size_t i = 0; i < data.size(); i += 16) {
+        backingStoreFile << "Offset " << std::dec << std::setfill('0')
+            << std::setw(4) << i << ": ";
+
+        size_t lineEnd = std::min(i + 16, data.size());
+        for (size_t j = i; j < lineEnd; ++j) {
+            backingStoreFile << std::dec << std::setfill(' ') << std::setw(3)
+                << static_cast<int>(data[j]) << " ";
+        }
+        backingStoreFile << "\n";
+    }
+
+    backingStoreFile << "=====================================\n\n";
+    backingStoreFile.close();
+
+   // std::cout << "[BACKING STORE] Page written: Process " << processId
+     //   << ", Page " << pageNumber << " (" << data.size() << " bytes)\n";
 }
 
 std::vector<uint8_t> MemoryManager::readFromBackingStore(int processId, int pageNumber) {
+    std::lock_guard<std::mutex> storeLock(backingStoreMutex);
     std::vector<uint8_t> data(memPerFrame, 0);
 
-    std::ifstream readStore("csopesy-backing-store.txt", std::ios::binary);
-    if (!readStore.is_open()) {
-        return data; // Return zeroed data if backing store doesn't exist
+    std::ifstream backingStoreFile("csopesy-backing-store.txt");
+    if (!backingStoreFile.is_open()) {
+        std::cout << "[BACKING STORE] File not found, returning zeroed page for Process "
+            << processId << ", Page " << pageNumber << "\n";
+        return data;
     }
 
-    int storedPid, storedPage;
-    while (readStore.read(reinterpret_cast<char*>(&storedPid), sizeof(storedPid)) &&
-        readStore.read(reinterpret_cast<char*>(&storedPage), sizeof(storedPage))) {
+    std::string line;
+    bool foundPage = false;
+    bool inHexData = false;
+    int currentOffset = 0;
 
-        if (storedPid == processId && storedPage == pageNumber) {
-            readStore.read(reinterpret_cast<char*>(data.data()), data.size());
-            break;
+    while (std::getline(backingStoreFile, line)) {
+        // Look for page header
+        if (line.find("Process ID: " + std::to_string(processId)) != std::string::npos) {
+            // Found matching process, now check page number
+            while (std::getline(backingStoreFile, line)) {
+                if (line.find("Page Number: " + std::to_string(pageNumber)) != std::string::npos) {
+                    foundPage = true;
+                    break;
+                }
+                else if (line.find("Process ID:") != std::string::npos) {
+                    // Found another process entry, stop looking
+                    break;
+                }
+            }
         }
-        else {
-            // Skip this page's data
-            readStore.seekg(memPerFrame, std::ios::cur);
+
+        if (foundPage) {
+            // Look for hex data section
+            if (line.find("PAGE DATA (Hexadecimal):") != std::string::npos) {
+                inHexData = true;
+                currentOffset = 0;
+                continue;
+            }
+
+            // Stop reading when we hit the decimal section or next page
+            if (line.find("PAGE DATA (Decimal Values):") != std::string::npos ||
+                line.find("Process ID:") != std::string::npos) {
+                break;
+            }
+
+            // Parse hex data lines
+            if (inHexData && line.find(":") != std::string::npos &&
+                line.find("=====") == std::string::npos &&
+                line.find("-----") == std::string::npos) {
+
+                // Find the hex data part (after the address)
+                size_t colonPos = line.find(':');
+                size_t pipePos = line.find('|');
+
+                if (colonPos != std::string::npos && pipePos != std::string::npos) {
+                    std::string hexPart = line.substr(colonPos + 1, pipePos - colonPos - 1);
+                    std::istringstream hexStream(hexPart);
+                    std::string hexByte;
+
+                    while (hexStream >> hexByte && currentOffset < data.size()) {
+                        if (hexByte.length() == 2) {
+                            try {
+                                data[currentOffset] = static_cast<uint8_t>(
+                                    std::stoul(hexByte, nullptr, 16));
+                                currentOffset++;
+                            }
+                            catch (const std::exception&) {
+                                // Skip invalid hex values
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
-    readStore.close();
+    backingStoreFile.close();
+
+    if (foundPage) {
+        //std::cout << "[BACKING STORE] Page loaded: Process " << processId
+          //  << ", Page " << pageNumber << " (" << currentOffset << " bytes read)\n";
+    }
+    else {
+        //std::cout << "[BACKING STORE] Page not found in backing store: Process "
+          //  << processId << ", Page " << pageNumber << " (returning zeroed page)\n";
+    }
+
     return data;
 }
 

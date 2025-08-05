@@ -1,2 +1,0 @@
-(08/05/2025 12:27:03 AM) Core:30 "Hello world from process64!"
-(08/05/2025 12:27:03 AM) Core:30 "Hello world from process64!"

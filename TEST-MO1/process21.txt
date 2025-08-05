@@ -1,3 +1,0 @@
-(08/05/2025 02:45:52 AM) Core:23 "Hello world from process21!"
-(08/05/2025 02:45:52 AM) Core:23 "Hello world from process21!"
-(08/05/2025 02:45:52 AM) Core:23 "Hello world from process21!"

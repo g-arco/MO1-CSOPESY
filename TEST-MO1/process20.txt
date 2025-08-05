@@ -1,2 +1,0 @@
-(08/05/2025 02:45:51 AM) Core:16 "Hello world from process20!"
-(08/05/2025 02:45:52 AM) Core:16 "Hello world from process20!"

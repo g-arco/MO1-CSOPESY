@@ -56,6 +56,8 @@ class MemoryManager {
 private:
     // Original members (kept for compatibility)
       // IMPROVED: Centralized tick management
+    std::mutex backingStoreMutex;
+
     std::atomic<int> globalTickCounter{ 0 };
     std::atomic<int> totalIdleTicks{ 0 };
     std::atomic<int> totalActiveTicks{ 0 };
@@ -109,7 +111,7 @@ private:
     // CHANGE: Added helper methods for demand paging
     int findFreeFrame();
     int selectVictimFrame();  // LRU replacement
-    void initializeBackingStorePages(int processId);
+    void initializeBackingStore();
     
     bool isValidAddress(int processId, uint32_t address);
     int getPageNumber(uint32_t address);
