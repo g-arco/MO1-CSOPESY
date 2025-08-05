@@ -179,8 +179,8 @@ void Screen::executeNextInstruction() {
                 logFile.flush();
             }
 
-            // Also print to console for immediate feedback
-           // std::cout << "[PRINT] " << name << ": " << finalOutput << std::endl;
+           //Also print to console for immediate feedback
+           std::cout << "[PRINT] " << name << ": " << finalOutput << std::endl;
         }
 
         else if (instr.type == InstructionType::SLEEP && !instr.args.empty()) {

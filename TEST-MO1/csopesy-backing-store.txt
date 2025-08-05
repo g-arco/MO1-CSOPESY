@@ -1,10 +1,10 @@
 =================================================
            CSOPESY BACKING STORE
 =================================================
-Initialized: 2025-08-05 18:14:19
-Total Memory: 4096 bytes
-Frame Size: 64 bytes
-Total Frames: 64
+Initialized: 2025-08-05 21:01:35
+Total Memory: 2048 bytes
+Frame Size: 256 bytes
+Total Frames: 8
 =================================================
 
 This file contains pages that have been swapped
@@ -12,25 +12,4 @@ out of physical memory due to memory pressure.
 Each page entry shows the process ID, page number,
 timestamp, and the actual memory contents in both
 hexadecimal and decimal formats.
-
-=====================================
-BACKING STORE PAGE ENTRY
-=====================================
-Process ID: 299
-Page Number: 4
-Timestamp: 2025-08-05 18:14:19
-Frame Size: 64 bytes
--------------------------------------
-PAGE DATA (Hexadecimal):
-00000100: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
-00000110: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
-00000120: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
-00000130: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 | ................
--------------------------------------
-PAGE DATA (Decimal Values):
-Offset 0000:   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0 
-Offset 0016:   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0 
-Offset 0032:   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0 
-Offset 0048:   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0   0 
-=====================================
 

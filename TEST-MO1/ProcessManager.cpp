@@ -189,6 +189,7 @@ std::vector<Instruction> ProcessManager::parseInstructionString(const std::strin
 
     while (std::getline(ss, token, ';')) {
         // Trim whitespace
+
         token.erase(0, token.find_first_not_of(" \t"));
         token.erase(token.find_last_not_of(" \t") + 1);
 
@@ -230,27 +231,36 @@ std::vector<Instruction> ProcessManager::parseInstructionString(const std::strin
             instrStream >> addr >> value;
             instr.args = { addr, value };
         }
-        else if (command == "PRINT") {
-            std::string remaining;
-            std::getline(instrStream, remaining);
-
-            // Remove leading whitespace
-            remaining.erase(0, remaining.find_first_not_of(" \t"));
-
-            // Enhanced PRINT parsing to handle parentheses and quotes
-            if (!remaining.empty()) {
-                // Remove outer parentheses if present: PRINT("text")
-                if (remaining.front() == '(' && remaining.back() == ')') {
-                    remaining = remaining.substr(1, remaining.length() - 2);
-                }
-
-                // Store the entire expression for later processing
-                instr.args = { remaining };
+        else if (command.rfind("PRINT", 0) == 0) { // command starts with PRINT
+            // If "PRINT" was stuck together with the rest, strip it
+            if (command != "PRINT") {
+                // Put back the extra chars into remaining
+                std::string afterPrint = command.substr(5); // remove "PRINT"
+                token = afterPrint + " " + token.substr(token.find(command) + command.size());
             }
             else {
-                instr.args = { "Hello World" }; // Default message
+                std::getline(instrStream, token);
             }
+
+            // Trim whitespace
+            token.erase(0, token.find_first_not_of(" \t"));
+            token.erase(token.find_last_not_of(" \t") + 1);
+
+            // Replace escaped quotes
+            size_t pos;
+            while ((pos = token.find("\\\"")) != std::string::npos) {
+                token.replace(pos, 2, "\"");
+            }
+
+            // Remove parentheses
+            if (!token.empty() && token.front() == '(' && token.back() == ')') {
+                token = token.substr(1, token.size() - 2);
+            }
+
+            instr.type = InstructionType::PRINT;
+            instr.args = { token.empty() ? "Hello World" : token };
         }
+
         else if (command == "SLEEP") {
             instr.type = InstructionType::SLEEP;
             std::string duration;

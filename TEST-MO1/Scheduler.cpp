@@ -412,12 +412,7 @@ void Scheduler::dummyProcessLoop() {
                 /*std::cout << "[Scheduler] Dummy process limit reached (50). Stopping generation.\n";
                 break;
             }*/
-            // CHANGE: Check memory pressure before creating new processes
-            //if (memoryManager && memoryManager->getUsedMemory() >= (config.maxOverallMem * 0.8)) {
-                // Memory is getting full, slow down process creation
-               // std::this_thread::sleep_for(std::chrono::milliseconds(config.batchFreq * 2));
-                //continue;
-            //}
+            
 
             if (elapsedMs >= config.batchFreq) {
                 std::string name = "process" + std::to_string(++dummyCounter);
