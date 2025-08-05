@@ -158,103 +158,130 @@ void Scheduler::worker(int coreId) {
 }
 
 void Scheduler::executeProcessRR(const std::shared_ptr<Screen>& screen, int coreId) {
+
+    static std::mutex console_mutex;
+
+
     try {
         screen->setCoreAssigned(coreId);
         int executed = 0;
         int pid = screen->getProcessId();
         int memorySize = screen->getAllocatedMemory();
 
-        // Memory allocation check...
         if (memoryManager && !memoryManager->isProcessAllocated(pid)) {
             if (memorySize > 0) {
+                //std::cout << "[RR] Attempting to allocate " << memorySize
+                  //  << " bytes for process " << pid << std::endl;
+
                 if (!memoryManager->allocateProcess(pid, memorySize)) {
-                    screen->setStatus(ProcessStatus::READY);
+                    {
+                       std::lock_guard<std::mutex> console_lock(console_mutex);
+                       //std::cout << "[RR] Memory allocation failed for process " << screen->getName()
+                         // << " - will retry later" << std::endl;
+                    }
+                    screen->setStatus(ProcessStatus::WAITING);
                     screen->setCoreAssigned(-1);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec * 5));
                     addProcess(screen);
                     return;
                 }
             }
         }
 
-        bool processCompleted = false;
+        
+        // FIXED: Round Robin should execute for quantum cycles OR until process finishes
+       //std::cout << "[RR] Starting quantum for process " << screen->getName()
+         //  << " (PID: " << pid << ") - Instructions: " << screen->getCurrentInstruction()
+           //  << "/" << screen->getTotalInstructions() << std::endl;
 
-        while (!screen->isFinished() && executed < quantumCycles && !finished.load() && !processCompleted) {
-            bool isExecutingInstruction = !screen->getIsSleeping() &&
-                (screen->getCurrentInstruction() < screen->getTotalInstructions());
+        while (!screen->isFinished() && executed < quantumCycles && !finished.load()) {
 
-            if (memoryManager) {
-                memoryManager->recordCoreActivity(coreId, isExecutingInstruction, 1);
-            }
-
+            // Handle sleeping processes
             if (screen->getIsSleeping()) {
+                bool isExecutingInstruction = false; // Sleeping = not executing
+                if (memoryManager) {
+                    memoryManager->recordCoreActivity(coreId, isExecutingInstruction, 1);
+                }
+
                 screen->decrementSleepTicks();
                 if (!screen->checkSleepComplete()) {
-                    executed++;
+                    executed++; // Count sleep ticks towards quantum
                     std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
                     continue;
                 }
+                // If sleep completed, continue to next instruction
             }
 
-            // Check for completion ONCE
+            // CRITICAL FIX: Check if process is truly finished BEFORE executing
             if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
-                processCompleted = true;
-                break;
+                screen->setStatus(ProcessStatus::FINISHED);
+                // std::cout << "[RR] Process " << screen->getName() << " completed all instructions\n";
+                break; // Process is truly finished
+            }
+
+            // Execute the next instruction
+            bool isExecutingInstruction = true;
+            if (memoryManager) {
+                memoryManager->recordCoreActivity(coreId, isExecutingInstruction, 1);
             }
 
             try {
                 screen->executeNextInstruction();
 
-                if (screen->getIsSleeping()) {
-                    executed++;
-                    continue;
-                }
-
+                // Check for errors after execution
                 if (screen->hasError()) {
                     handleProcessError(screen, "Memory access violation occurred during instruction execution.");
-                    if (memoryManager) {
-                        memoryManager->deallocateProcess(pid);
-                    }
-                    processCompleted = true;
-                    break;
+                    break; // Exit on error
                 }
 
-                executed++;
+                executed++; // Count executed instructions towards quantum
             }
             catch (const std::exception& e) {
                 handleProcessError(screen, e.what());
-                if (memoryManager) {
-                    memoryManager->deallocateProcess(pid);
-                }
-                processCompleted = true;
-                break;
+                break; // Exit on exception
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(config.delayPerExec));
         }
 
-        // Handle process completion/requeuing - SINGLE POINT OF CONTROL
-        if (processCompleted || screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+        // FIXED: Proper process state management after quantum expires
+        if (screen->hasError()) {
+            // Process had an error - mark as finished and deallocate
             screen->setStatus(ProcessStatus::FINISHED);
-            screen->setCoreAssigned(-1);  // IMPORTANT: Clear core assignment immediately
+            screen->setCoreAssigned(-1);
             if (memoryManager) {
                 memoryManager->deallocateProcess(pid);
             }
-            // Don't call cleanupFinishedProcesses() here - let main thread handle it
+            std::cout << "[RR] Process " << screen->getName() << " terminated due to error\n";
         }
-        else if (!screen->hasError()) {
+        else if (screen->getCurrentInstruction() >= screen->getTotalInstructions()) {
+            // Process completed all instructions - mark as finished and deallocate
+            screen->setStatus(ProcessStatus::FINISHED);
+            screen->setCoreAssigned(-1);
+            if (memoryManager) {
+                memoryManager->deallocateProcess(pid);
+            }
+           // std::cout << "[RR] Process " << screen->getName() << " completed ("
+            //    << screen->getCurrentInstruction() << "/" << screen->getTotalInstructions() << ")\n";
+        }
+        else {
+            // Quantum expired but process not finished - requeue for next quantum
             screen->setStatus(ProcessStatus::READY);
             screen->setCoreAssigned(-1);
-            addProcess(screen);
+            addProcess(screen); // Put back in ready queue
+           // std::cout << "[RR] Process " << screen->getName() << " quantum expired - requeuing ("
+            //    << screen->getCurrentInstruction() << "/" << screen->getTotalInstructions()
+              //  << ") - executed " << executed << " instructions this quantum\n";
         }
     }
     catch (const std::exception& e) {
-        screen->setCoreAssigned(-1);  // Clear core assignment on error
+        screen->setCoreAssigned(-1);
+        handleProcessError(screen, e.what());
         if (memoryManager) {
             memoryManager->deallocateProcess(screen->getProcessId());
         }
     }
 }
-
 
 // SOLUTION 3: Enhanced executeProcessFCFS with consistent tick recording
 

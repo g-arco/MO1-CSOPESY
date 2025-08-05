@@ -35,6 +35,7 @@ private:
     // Process queue and synchronization
     std::queue<std::shared_ptr<Screen>> screenQueue;
     mutable std::mutex queueMutex;
+
     std::condition_variable cv;
 
     // Worker threads

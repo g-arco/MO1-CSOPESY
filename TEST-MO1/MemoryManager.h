@@ -123,6 +123,7 @@ private:
 
     // Variable management (symbol table operations)
     bool declareVariableInternal(int processId, const std::string& varName, uint16_t value);
+    bool tryFreeMemoryForAllocation(int neededMemory);
 
 public:
     // Original constructor (kept for compatibility)

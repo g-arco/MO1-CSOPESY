@@ -12,7 +12,7 @@
 #include <map>
 #include "Config.h"
 
-enum class ProcessStatus { READY, RUNNING, FINISHED };
+enum class ProcessStatus { READY, RUNNING, FINISHED, WAITING };
 
 // CHANGE: Enhanced instruction types to include memory operations
 enum class InstructionType {

@@ -137,30 +137,33 @@ void MemoryManager::initializeBackingStorePages(int processId) {
 }
 
 
-// CHANGE: New method to allocate process with specific memory size
+// CRITICAL FIX: Enhanced memory allocation check for highly constrained memory
 bool MemoryManager::allocateProcess(int processId, int memorySize) {
     std::lock_guard<std::recursive_mutex> lock(memoryMutex);
 
+    int numPages = (memorySize + memPerFrame - 1) / memPerFrame;
+
+    if (memorySize > maxOverallMem) {
+        return false;
+    }
+
+
     if (processMemoryMap.find(processId) != processMemoryMap.end()) {
-        // Already allocated
-        return false;
+        return false; // Already allocated
     }
 
-    int currentUsed = getUsedMemory();
-    if (currentUsed + memorySize > maxOverallMem) {
-        //std::cout << "Insufficient system memory for allocation\n";
-        return false;
-    }
+    // CRITICAL: Don't check total memory usage - just allocate the process
+    // Let page replacement handle the memory pressure when pages are actually accessed
 
-    // Validate memory size (must be power of 2, within range)
+   // std::cout << "[MEMORY] Allocating process " << processId
+     //  << " (" << memorySize << " bytes) - relying on page replacement for memory management" << std::endl;
+
+    // Validate memory size
     if (memorySize < 64 || memorySize > 65536) {
-        std::cout << "Invalid memory allocation: size must be between 64 and 65536 bytes\n";
         return false;
     }
 
-    // Check if it's a power of 2
     if ((memorySize & (memorySize - 1)) != 0) {
-        std::cout << "Invalid memory allocation: size must be a power of 2\n";
         return false;
     }
 
@@ -168,35 +171,67 @@ bool MemoryManager::allocateProcess(int processId, int memorySize) {
     procMem.processId = processId;
     procMem.allocatedMemory = memorySize;
 
-    // Calculate number of pages needed
-    int frameSize = memPerFrame; // or whatever your frame size is
-    int numPages = (memorySize + frameSize - 1) / frameSize;
-
-    if (numPages == 0) {
-        numPages = 1;  // You probably have this fix, but let's verify
-    }
+    if (numPages == 0) numPages = 1;
 
     procMem.pages.clear();
     procMem.pages.resize(numPages);
 
     for (int i = 0; i < numPages; i++) {
-        procMem.pages[i].frameNumber = -1; // no frame assigned yet
-        procMem.pages[i].inMemory = false; // not yet loaded in memory
+        procMem.pages[i].frameNumber = -1;  // Not in memory initially
+        procMem.pages[i].inMemory = false;  // Will be loaded on demand
+        procMem.pages[i].dirty = false;
+        procMem.pages[i].lastAccessed = 0;
     }
 
     procMem.hasMemoryViolation = false;
     procMem.violationTime = "";
 
-
     processMemoryMap[processId] = procMem;
     initializeBackingStorePages(processId);
 
-
-    // now use `pm`, which is a copy
-
-
-   // std::cout << "[MEMORY] Allocated " << memorySize << " bytes (" << numPages << " pages) for process " << processId << "\n";
+    //  std::cout << "[MEMORY] Process " << processId << " allocated with "
+      // << numPages << " pages (none loaded yet)" << std::endl;
     return true;
+}
+
+// NEW: Try to free memory for new allocation
+bool MemoryManager::tryFreeMemoryForAllocation(int neededMemory) {
+    std::lock_guard<std::recursive_mutex> lock(memoryMutex);
+
+    // Calculate how much memory we need to free
+    int currentUsed = getUsedMemory();
+    int availableMemory = maxOverallMem - currentUsed;
+
+    if (availableMemory >= neededMemory) {
+        return true; // Already have enough memory
+    }
+
+    int memoryToFree = neededMemory - availableMemory;
+    std::cout << "[MEMORY] Need to free " << memoryToFree << " bytes" << std::endl;
+
+    // Strategy: Deallocate entire processes to make room
+    std::vector<int> processesToDeallocate;
+    int freedMemory = 0;
+
+    for (const auto& pair : processMemoryMap) {
+        if (freedMemory >= memoryToFree) break;
+
+        int processId = pair.first;
+        int processMemory = pair.second.allocatedMemory;
+
+        processesToDeallocate.push_back(processId);
+        freedMemory += processMemory;
+
+        std::cout << "[MEMORY] Will deallocate process " << processId
+            << " (" << processMemory << " bytes)" << std::endl;
+    }
+
+    // Actually deallocate the processes
+    for (int processId : processesToDeallocate) {
+        deallocateProcess(processId);
+    }
+
+    return freedMemory >= memoryToFree;
 }
 
 
@@ -232,71 +267,110 @@ void MemoryManager::deallocateProcess(int processId) {
 
 // CHANGE: Demand paging - find free frame
 int MemoryManager::findFreeFrame() {
+
+    // std::cout << "[DEBUG] No free frames available - checking if any process can fit in memory" << std::endl;
+
+    bool anyProcessCanFit = false;
+    for (const auto& pair : processMemoryMap) {
+        int processId = pair.first;
+        const ProcessMemory& procMem = pair.second;
+        int totalPagesNeeded = procMem.pages.size();
+        int totalFramesAvailable = physicalFrames.size();
+
+       // std::cout << "[DEBUG] Process " << processId << " needs " << totalPagesNeeded
+         //   << " pages, system has " << totalFramesAvailable << " frames" << std::endl;
+
+        if (totalPagesNeeded <= totalFramesAvailable) {
+            anyProcessCanFit = true;
+            //std::cout << "[DEBUG] Process " << processId << " CAN fit in memory" << std::endl;
+            break;
+        }
+        else {
+          //  std::cout << "[DEBUG] Process " << processId << " CANNOT fit in memory (needs "
+            //    << (totalPagesNeeded - totalFramesAvailable) << " more frames)" << std::endl;
+        }
+    }
+
+    if (!anyProcessCanFit) {
+       // std::cout << "[DEADLOCK] NO PROCESS CAN FIT IN MEMORY - SYSTEM DEADLOCKED!" << std::endl;
+        //std::cout << "[DEADLOCK] All processes require more frames than the system has available" << std::endl;
+        //std::cout << "[DEADLOCK] Page replacement cannot help - returning -1 to indicate deadlock" << std::endl;
+
+        // Return -1 to indicate that no frame can be made available
+        // This will cause the calling pageIn() to handle the deadlock condition
+        return -1;
+    }
+
+    // First pass: look for truly free frames
     for (int i = 0; i < physicalFrames.size(); ++i) {
         if (!physicalFrames[i].occupied) {
+            //std::cout << "[DEBUG] Found free frame: " << i << std::endl;
             return i;
         }
     }
-    return -1; // No free frame
-}
 
-// CHANGE: LRU page replacement algorithm
-int MemoryManager::selectVictimFrame() {
-    int victimFrame = 0;
-    int oldestTime = physicalFrames[0].frameNumber >= 0 ?
-        processMemoryMap[physicalFrames[0].processId].pages[physicalFrames[0].pageNumber].lastAccessed : globalTime;
-
-    for (int i = 0; i < physicalFrames.size(); ++i) {
-        if (physicalFrames[i].occupied) {
-            int processId = physicalFrames[i].processId;
-            int pageNumber = physicalFrames[i].pageNumber;
-
-            auto it = processMemoryMap.find(processId);
-            if (it != processMemoryMap.end() && pageNumber < it->second.pages.size()) {
-                int lastAccessed = it->second.pages[pageNumber].lastAccessed;
-                if (lastAccessed < oldestTime) {
-                    oldestTime = lastAccessed;
-                    victimFrame = i;
-                }
-            }
-            else {
-                // Process not found or invalid page - good candidate for eviction
-                return i;
-            }
-        }
-    }
-
-    // If no victim found, just use first occupied frame
-    if (victimFrame == -1) {
-        for (int i = 0; i < physicalFrames.size(); ++i) {
-            if (physicalFrames[i].occupied) {
-                return i;
-            }
-        }
-    }
-
-    return victimFrame;
+    // If we get here, at least one process can fit, so normal page replacement should work
+    //std::cout << "[DEBUG] At least one process can fit - proceeding with normal page replacement" << std::endl;
+    return -1;
 }
 
 // CHANGE: Page in operation
 void MemoryManager::pageIn(int processId, int pageNumber) {
     std::lock_guard<std::recursive_mutex> lock(memoryMutex);
 
+   // std::cout << "[PAGING] Attempting to page in Process " << processId
+     //   << ", Page " << pageNumber << std::endl;
+
     int frameNumber = findFreeFrame();
 
-    // In pageIn(), ensure proper eviction when memory is full
+    // CRITICAL: Force replacement when all frames are occupied
     if (frameNumber == -1) {
-        frameNumber = selectVictimFrame();
-        if (frameNumber >= 0) {
-            pageOut(frameNumber); // This should increment numPagedOut
+        // Check if this is a deadlock situation or normal "frames full" situation
+        // We can distinguish by checking if current process can fit
+        auto it = processMemoryMap.find(processId);
+        if (it != processMemoryMap.end()) {
+            int totalPagesNeeded = it->second.pages.size();
+            int totalFramesAvailable = physicalFrames.size();
+
+            if (totalPagesNeeded > totalFramesAvailable) {
+                // DEADLOCK: Process cannot fit in memory
+              //  std::cout << "[DEADLOCK] Process " << processId << " page " << pageNumber
+                //    << " cannot be loaded - process needs " << totalPagesNeeded
+                  //  << " pages but system only has " << totalFramesAvailable
+                    //<< " frames total!" << std::endl;
+
+                // DON'T update the page table - leave page as "not in memory"
+                // This will cause the process to hang when it tries to access this page
+                // The process will be stuck in an infinite loop trying to access this memory
+
+                return; // Exit without loading the page - this creates the deadlock
+            }
         }
-        else {
-            throw std::runtime_error("No frames available for paging");
+
+        // Normal case: frames are full but process can fit with page replacement
+        //std::cout << "[PAGING] All frames occupied - initiating LRU page replacement" << std::endl;
+
+        frameNumber = selectVictimFrame();
+
+        if (frameNumber < 0 || frameNumber >= physicalFrames.size()) {
+            throw std::runtime_error("selectVictimFrame returned invalid frame: " + std::to_string(frameNumber));
+        }
+
+       //std::cout << "[PAGING] Selected victim frame " << frameNumber
+         // << " (Process " << physicalFrames[frameNumber].processId
+           //<< ", Page " << physicalFrames[frameNumber].pageNumber << ")" << std::endl;
+
+        // Page out the victim
+        pageOut(frameNumber);
+
+        // Verify frame is now available
+        if (physicalFrames[frameNumber].occupied) {
+            throw std::runtime_error("Frame " + std::to_string(frameNumber) + " still occupied after page out!");
         }
     }
 
     if (frameNumber < 0 || frameNumber >= physicalFrames.size()) {
-        throw std::runtime_error("Invalid frame number: " + std::to_string(frameNumber));
+        throw std::runtime_error("Invalid frame number for page in: " + std::to_string(frameNumber));
     }
 
     // Read page from backing store
@@ -318,45 +392,98 @@ void MemoryManager::pageIn(int processId, int pageNumber) {
 
     numPagedIn++;
 
-    // CHANGE 11: Force more paging when memory is full
-    // ENHANCED: More aggressive paging policy
-    // Force pageouts when memory utilization is above 75%
+    // Count occupied frames for verification
     int occupiedFrames = 0;
     for (const auto& frame : physicalFrames) {
         if (frame.occupied) occupiedFrames++;
     }
 
-    double utilization = (double)occupiedFrames / physicalFrames.size();
-    if (utilization > 0.95) { // 90% threshold instead of 100%
-        // Find a different frame to page out (not the one we just paged in)
-        for (int i = 0; i < physicalFrames.size(); ++i) {
-            if (i != frameNumber && physicalFrames[i].occupied) {
-                // Check if this frame belongs to a different process or older page
-                if (physicalFrames[i].processId != processId) {
-                  //  std::cout << "[PAGING] Proactive pageout due to high memory utilization ("
-                    //    << (utilization * 100) << "%)\n";
-                    pageOut(i);
-                    break;
+   // std::cout << "[PAGING] Successfully paged in: Process " << processId
+     //   << ", Page " << pageNumber << " -> Frame " << frameNumber
+      //  << " (Total page-ins: " << numPagedIn << ")" << std::endl;
+   // std::cout << "[DEBUG] Frames occupied after page in: " << occupiedFrames
+     //   << "/" << physicalFrames.size() << std::endl;
+
+    // CRITICAL: Verify we haven't exceeded frame capacity
+    if (occupiedFrames > physicalFrames.size()) {
+        throw std::runtime_error("Frame count exceeded physical memory capacity!");
+    }
+}
+
+
+// ENHANCED: Better victim frame selection with debug output
+int MemoryManager::selectVictimFrame() {
+   // std::cout << "[DEBUG] Selecting victim frame using LRU policy..." << std::endl;
+
+    int victimFrame = -1;
+    int oldestTime = INT_MAX;
+
+    // Find the frame with the oldest last accessed time
+    for (int i = 0; i < physicalFrames.size(); ++i) {
+        if (physicalFrames[i].occupied) {
+            int processId = physicalFrames[i].processId;
+            int pageNumber = physicalFrames[i].pageNumber;
+
+            auto it = processMemoryMap.find(processId);
+            if (it != processMemoryMap.end() && pageNumber < it->second.pages.size()) {
+                int lastAccessed = it->second.pages[pageNumber].lastAccessed;
+               // std::cout << "[DEBUG] Frame " << i << " (Process " << processId << ", Page " << pageNumber
+                  //  << ") last accessed at time " << lastAccessed << std::endl;
+
+                if (lastAccessed < oldestTime) {
+                    oldestTime = lastAccessed;
+                    victimFrame = i;
                 }
+            }
+            else {
+                // Process not found or invalid page - good candidate for eviction
+                std::cout << "[DEBUG] Frame " << i << " has invalid process/page - selecting as victim" << std::endl;
+                return i;
             }
         }
     }
-  // std::cout << "[PAGING] Paged in: Process " << processId << ", Page " << pageNumber << " -> Frame " << frameNumber << "\n";
+
+    // If no victim found through LRU, just use first occupied frame
+    if (victimFrame == -1) {
+        for (int i = 0; i < physicalFrames.size(); ++i) {
+            if (physicalFrames[i].occupied) {
+                victimFrame = i;
+                break;
+            }
+        }
+    }
+
+   // std::cout << "[DEBUG] Selected victim frame: " << victimFrame << std::endl;
+    return victimFrame;
 }
 
-// CHANGE: Page out operation
+// ENHANCED: Better page out operation with clearer logging
 void MemoryManager::pageOut(int frameNumber) {
     std::lock_guard<std::recursive_mutex> lock(memoryMutex);
 
+   // std::cout << "[PAGING] Starting page out for frame " << frameNumber << std::endl;
+
+    if (frameNumber < 0 || frameNumber >= physicalFrames.size()) {
+        std::cout << "[ERROR] Invalid frame number for page out: " << frameNumber << std::endl;
+        return;
+    }
+
     Frame& frame = physicalFrames[frameNumber];
-    if (!frame.occupied) return;
+    if (!frame.occupied) {
+        std::cout << "[WARNING] Attempting to page out unoccupied frame " << frameNumber << std::endl;
+        return;
+    }
 
     int processId = frame.processId;
     int pageNumber = frame.pageNumber;
 
+  //  std::cout << "[PAGING] Evicting Process " << processId << ", Page " << pageNumber
+    //    << " from Frame " << frameNumber << std::endl;
+
     // Find the process in the map
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) {
+        std::cout << "[WARNING] Process " << processId << " not found in memory map during page out" << std::endl;
         // Process not found, just free the frame
         frame.occupied = false;
         frame.processId = -1;
@@ -366,24 +493,30 @@ void MemoryManager::pageOut(int frameNumber) {
 
     ProcessMemory& procMem = it->second;
 
-    // Write to backing store if dirty
-    if (pageNumber < procMem.pages.size() && procMem.pages[pageNumber].dirty) {
+    // Write to backing store if dirty (you may need to track dirty bit)
+    if (pageNumber < procMem.pages.size()) {
+        // For now, always write to backing store since we don't track dirty bit
         writeToBackingStore(processId, pageNumber, frame.data);
+      //  std::cout << "[PAGING] Wrote page " << pageNumber << " to backing store" << std::endl;
     }
 
     // Update page table
     if (pageNumber < procMem.pages.size()) {
         procMem.pages[pageNumber].inMemory = false;
         procMem.pages[pageNumber].frameNumber = -1;
+        // Don't reset lastAccessed - keep it for LRU policy
     }
 
     // Free frame
     frame.occupied = false;
     frame.processId = -1;
     frame.pageNumber = -1;
+    frame.data.clear(); // Clear the data
 
     numPagedOut++;
-   // std::cout << "[PAGING] Paged out: Process " << processId << ", Page " << pageNumber << " from Frame " << frameNumber << "\n";
+  //  std::cout << "[PAGING] Successfully paged out: Process " << processId
+    //    << ", Page " << pageNumber << " from Frame " << frameNumber
+      //  << " (Total page-outs: " << numPagedOut << ")" << std::endl;
 }
 
 // CHANGE: Memory access validation
@@ -420,8 +553,8 @@ bool MemoryManager::declareVariable(int processId, const std::string& varName, u
 }
 
 uint16_t MemoryManager::readMemoryInternal(int processId, uint32_t address) {
-   // std::cout << "[READ] PID " << processId << " reading from 0x"
-     //   << std::hex << address << std::dec << "\n";
+  // std::cout << "[READ] PID " << processId << " reading from 0x"
+    //  << std::hex << address << std::dec << "\n";
 
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) {
@@ -459,8 +592,8 @@ uint16_t MemoryManager::readMemoryInternal(int processId, uint32_t address) {
     ProcessMemory& procMem = it->second;
 
     if (!procMem.pages[pageNumber].inMemory) {
-       // std::cout << "[PAGE FAULT] PID " << processId << " reading page " << pageNumber
-         //  << " (addr 0x" << std::hex << address << std::dec << ")\n";
+     //   std::cout << "[PAGE FAULT] PID " << processId << " reading page " << pageNumber
+       //   << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
 
         if (!procMem.pages[pageNumber].inMemory) {
@@ -485,8 +618,8 @@ uint16_t MemoryManager::readMemoryInternal(int processId, uint32_t address) {
 }
 
 void MemoryManager::writeMemoryInternal(int processId, uint32_t address, uint16_t value) {
-  //  std::cout << "[WRITE] PID " << processId << " writing " << value << " to 0x"
-    //    << std::hex << address << std::dec << "\n";
+  // std::cout << "[WRITE] PID " << processId << " writing " << value << " to 0x"
+    //   << std::hex << address << std::dec << "\n";
 
     auto it = processMemoryMap.find(processId);
     if (it == processMemoryMap.end()) {
@@ -495,8 +628,8 @@ void MemoryManager::writeMemoryInternal(int processId, uint32_t address, uint16_
     }
 
     if (address >= it->second.allocatedMemory) {
-       // std::cerr << "[WRITE] MEMORY VIOLATION: PID " << processId
-         //   << " tried to write 0x" << std::hex << address << std::dec << "\n";
+         std::cerr << "[WRITE] MEMORY VIOLATION: PID " << processId
+            << " tried to write 0x" << std::hex << address << std::dec << "\n";
 
         auto& procMem = it->second;
         procMem.hasMemoryViolation = true;
@@ -524,8 +657,8 @@ void MemoryManager::writeMemoryInternal(int processId, uint32_t address, uint16_
     ProcessMemory& procMem = it->second;
 
     if (!procMem.pages[pageNumber].inMemory) {
-        //std::cout << "[PAGE FAULT] PID " << processId << " writing page " << pageNumber
-          //  << " (addr 0x" << std::hex << address << std::dec << ")\n";
+       // std::cout << "[PAGE FAULT] PID " << processId << " writing page " << pageNumber
+         // << " (addr 0x" << std::hex << address << std::dec << ")\n";
         pageIn(processId, pageNumber);
 
         if (!procMem.pages[pageNumber].inMemory) {
@@ -1062,3 +1195,4 @@ void MemoryManager::finish() {
     // Add logic here to wait for any worker threads to finish.
     // For example, if you have a thread for dummy memory access, you would join it here.
 }
+
