@@ -41,7 +41,7 @@ public:
 
     // Process listing and reporting
     static void listScreens(const Config& config);
-    static void generateReport();
+    static void generateReport(double cpuUtilization);
 
     // Memory operations (original - may need updating for MCO2)
     static void swapOut(const std::string& name);

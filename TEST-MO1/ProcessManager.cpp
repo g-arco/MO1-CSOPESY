@@ -379,13 +379,13 @@ void ProcessManager::listScreens(const Config& config) {
     std::cout << "----------------------------------------\n\n";
 }
 
-void ProcessManager::generateReport() {
+void ProcessManager::generateReport(double cpuUtilization) {
     std::lock_guard<std::mutex> lock(processMutex);
     // Implementation for generating a report
     std::cout << "[REPORT] Generating report for all processes...\n";
     // For each process, you would print its status, resource usage, etc.
     if (memoryManager) {
-        memoryManager->printReport();
+        memoryManager->printReport(cpuUtilization);
     }
     // You can also add more details about each process here.
     std::cout << "[REPORT] Report generation complete.\n";

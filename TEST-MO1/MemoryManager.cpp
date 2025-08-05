@@ -950,20 +950,21 @@ std::vector<uint8_t> MemoryManager::readFromBackingStore(int processId, int page
 }
 
 // CHANGE: Memory debugging - process-smi command
-void MemoryManager::processingSmi() {
+void MemoryManager::processingSmi(double cpuUtilization) {
     std::lock_guard<std::recursive_mutex> lock(memoryMutex); // Single mutex
 
     std::cout << "=========================================================================================\n";
-    std::cout << "| PROCESS-SMI 24.6.1       Driver Version: 12.0.1    CUDA Version: N/A              |\n";
+    std::cout << "PROCESS-SMI 24.6.1       Driver Version: 12.0.1    CUDA Version: N/A              \n";
     std::cout << "=========================================================================================\n";
 
     int usedMemory = getUsedMemory();
-    std::cout << "| Memory Usage: " << usedMemory << " / " << maxOverallMem << " bytes";
-    std::cout << std::setw(50 - std::to_string(usedMemory).length() - std::to_string(maxOverallMem).length()) << "|\n";
+    std::cout << "Memory Usage: " << usedMemory << " / " << maxOverallMem << " bytes\n";
+    std::cout << "Memory Utilization: " << (usedMemory/ maxOverallMem) *100 << "% \n";
+    std::cout << "CPU utilization: " << cpuUtilization << "% \n";
     std::cout << "=========================================================================================\n";
-    std::cout << "| Processes:                                                                             |\n";
+    std::cout << "Processes:                                                                             \n";
     std::cout << "=========================================================================================\n";
-    std::cout << "| PID   Memory Usage   Process Name                                                     |\n";
+    std::cout << "PID   Memory Usage   Process Name                                                     \n";
     std::cout << "=========================================================================================\n";
 
     // CHANGE 6: Safe iteration
@@ -974,9 +975,9 @@ void MemoryManager::processingSmi() {
 
         const ProcessMemory& procMem = pair.second;
         std::string processName = "Process" + std::to_string(procMem.processId);
-        std::cout << "| " << std::setw(5) << procMem.processId
+        std::cout << std::setw(5) << procMem.processId
             << "   " << std::setw(12) << procMem.allocatedMemory << " bytes"
-            << "   " << std::left << std::setw(45) << processName << "|\n";
+            << "   " << std::left << std::setw(45) << processName << "\n";
     }
 
     std::cout << "=========================================================================================\n\n";
@@ -1256,7 +1257,7 @@ void MemoryManager::snapshot(int quantumCycle) {
     */
 }
 
-void MemoryManager::printReport() const {
+void MemoryManager::printReport(double cpuUtilization) const {
     std::cout << "\n========================================\n";
     std::cout << "         MEMORY MANAGER REPORT          \n";
     std::cout << "========================================\n";
@@ -1302,8 +1303,7 @@ void MemoryManager::printReport() const {
     int totalTicks = getTotalTicks();
     if (totalTicks > 0) {
         double utilization = (double)getTotalActiveTicks() / totalTicks * 100.0;
-        std::cout << "CPU utilization:  " << std::fixed << std::setprecision(2)
-            << utilization << "%\n";
+        std::cout << "CPU utilization:  " << cpuUtilization << "%\n";
     }
 
 

@@ -222,7 +222,7 @@ void commandLoop() {
         // CHANGE: MCO2 - New process-smi command
         else if (cmd == "process-smi") {
             if (memoryManager) {
-                memoryManager->processingSmi();
+                memoryManager->processingSmi(processManager->getCpuUtilization(config.numCpu));
             }
             else {
                 std::cout << "Memory manager not initialized. Run 'initialize' first.\n";
@@ -239,7 +239,7 @@ void commandLoop() {
         }
         // ORIGINAL COMMANDS (kept for compatibility)
         else if (cmd == "report-util") {
-            ProcessManager::generateReport();
+            ProcessManager::generateReport(processManager->getCpuUtilization(config.numCpu));
         }
         // ORIGINAL COMMANDS (commented out - replaced by new memory management)
         /*

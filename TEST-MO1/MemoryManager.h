@@ -162,7 +162,7 @@ public:
     void setVariable(int processId, const std::string& varName, uint16_t value);
 
     // Memory debugging commands
-    void processingSmi();
+    void processingSmi(double cpuUtilization);
     void vmstat(double cpuUtilization);
 
     // Statistics methods
@@ -193,7 +193,7 @@ public:
     void pageIn(int processId, int pageNumber);
     void pageOut(int frameNumber);
 
-    void printReport() const;
+    void printReport(double cpuUtilization) const;
 };
 
 // CHANGE: Global memory manager declaration
